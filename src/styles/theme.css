@@ -32,18 +32,54 @@ html, body, #root {
 .stage-viewport {
   position: fixed;
   inset: 0;
-  display: grid;
-  place-items: center;
+  overflow: hidden;
   background: #000;
 }
 .stage {
-  position: relative;
-  flex: none;
+  position: absolute;
+  left: 0; top: 0;
   overflow: hidden;
   background: radial-gradient(ellipse at center, #071a12 0%, var(--bg) 70%);
-  transform-origin: center center;
+  transform-origin: 0 0;
 }
 .screen, .layer { position: absolute; inset: 0; }
+
+/* ===== 画面共通のレイアウト(画面の大きさに合わせて伸び縮みする) ===== */
+.layout {
+  display: grid;
+  grid-template-rows: 84px minmax(0, 1fr);
+  column-gap: 40px;
+  row-gap: 30px;
+  padding: 36px 40px 40px;
+}
+.layout--map { grid-template-columns: minmax(0, 1fr) 400px; }
+.layout--comms { grid-template-columns: minmax(0, 1fr) 560px; }
+.screen-header {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: flex-end;
+  padding: 0 20px 14px;
+  border-bottom: 1px solid var(--line-dim);
+}
+.layout-main { position: relative; min-width: 0; min-height: 0; }
+/* 四隅のブラケット枠 */
+.hud-frame::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  --c: var(--line);
+  background:
+    linear-gradient(var(--c), var(--c)) left top / 60px 2px,
+    linear-gradient(var(--c), var(--c)) left top / 2px 60px,
+    linear-gradient(var(--c), var(--c)) right top / 60px 2px,
+    linear-gradient(var(--c), var(--c)) right top / 2px 60px,
+    linear-gradient(var(--c), var(--c)) left bottom / 60px 2px,
+    linear-gradient(var(--c), var(--c)) left bottom / 2px 60px,
+    linear-gradient(var(--c), var(--c)) right bottom / 60px 2px,
+    linear-gradient(var(--c), var(--c)) right bottom / 2px 60px;
+  background-repeat: no-repeat;
+}
 
 /* ===== SVG ワイヤーフレーム共通 ===== */
 .line, .line * {
@@ -119,13 +155,6 @@ html, body, #root {
 }
 
 /* ===== 3D マップ画面 ===== */
-.map-header {
-  position: absolute;
-  left: 60px; right: 60px; top: 66px;
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-}
 .map-title-main {
   font-family: var(--font-display);
   font-weight: 800;
@@ -135,10 +164,9 @@ html, body, #root {
   text-shadow: 0 0 10px var(--line);
 }
 .map-title-sub { margin-left: 24px; font-size: 24px; letter-spacing: 0.2em; opacity: 0.7; }
-.map-status { font-size: 22px; letter-spacing: 0.2em; color: var(--danger); }
 
-.map-viewport { position: absolute; overflow: hidden; }
-.map-view { position: relative; }
+.layout--map .layout-main { overflow: hidden; }
+.map-view { position: absolute; inset: 0; }
 .map-view canvas { display: block; touch-action: none; }
 .map-labels { position: absolute; inset: 0; pointer-events: none; }
 .map-viewport-caption {
@@ -169,9 +197,7 @@ html, body, #root {
 }
 
 .map-panel {
-  position: absolute;
-  left: 1480px; top: 150px;
-  width: 400px; height: 1010px;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 18px;
@@ -280,7 +306,8 @@ html, body, #root {
 }
 
 /* ===== 通信画面 ===== */
-.comms-monitor { position: absolute; overflow: hidden; background: #000; }
+.comms-main { display: flex; flex-direction: column; gap: 24px; }
+.comms-monitor { position: relative; flex: 1; min-height: 0; overflow: hidden; background: #000; }
 .comms-video { position: absolute; inset: 0; cursor: pointer; }
 .comms-video video { width: 100%; height: 100%; object-fit: contain; background: #000; display: block; }
 .comms-noise { position: absolute; inset: 0; width: 100%; height: 100%; image-rendering: pixelated; }
@@ -335,9 +362,8 @@ html, body, #root {
 }
 
 .comms-steps {
-  position: absolute;
-  left: 40px; top: 872px;
-  width: 1240px; height: 288px;
+  flex: none;
+  height: 288px;
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   gap: 12px;
@@ -364,9 +390,7 @@ html, body, #root {
 .comms-step.is-locked .comms-step-no { color: var(--text); }
 
 .comms-panel {
-  position: absolute;
-  left: 1320px; top: 150px;
-  width: 560px; height: 1010px;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 14px;

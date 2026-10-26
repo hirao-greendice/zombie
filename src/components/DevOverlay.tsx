@@ -3,12 +3,14 @@ import { STAGE_HEIGHT, STAGE_WIDTH } from '../config'
 
 function readInfo() {
   const dpr = window.devicePixelRatio
+  const scale = Math.min(window.innerWidth / STAGE_WIDTH, window.innerHeight / STAGE_HEIGHT)
   return {
+    stage: `${Math.round(window.innerWidth / scale)} x ${Math.round(window.innerHeight / scale)}`,
     viewport: `${window.innerWidth} x ${window.innerHeight}`,
     screen: `${screen.width} x ${screen.height}`,
     physical: `${Math.round(screen.width * dpr)} x ${Math.round(screen.height * dpr)}`,
     dpr,
-    scale: Math.min(window.innerWidth / STAGE_WIDTH, window.innerHeight / STAGE_HEIGHT),
+    scale,
   }
 }
 
@@ -51,7 +53,7 @@ export function DevOverlay() {
   if (!visible) return null
   return (
     <div className="dev-overlay">
-      {`STAGE    ${STAGE_WIDTH} x ${STAGE_HEIGHT}
+      {`STAGE    ${info.stage} (min ${STAGE_WIDTH} x ${STAGE_HEIGHT})
 VIEWPORT ${info.viewport} (css px)
 SCREEN   ${info.screen} (css px)
 PHYSICAL ${info.physical} (dpr ${info.dpr})

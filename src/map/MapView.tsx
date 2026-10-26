@@ -11,8 +11,6 @@ import type { Building, StairType } from './types'
 
 interface Props {
   building: Building
-  width: number
-  height: number
   /** 選択中の階の index。null なら全階表示 */
   activeFloor: number | null
   autoRotate: boolean
@@ -31,7 +29,8 @@ const DIM_ABOVE = 0.008
 const LIFT = 4
 const VIEW_DIR = new THREE.Vector3(1, 0.62, 1.15).normalize()
 
-export function MapView({ building, width, height, activeFloor, autoRotate, resetKey, exploded, stairType, paused = false }: Props) {
+/** 親要素いっぱいに広がり、親の大きさが変わると描画サイズも追従する */
+export function MapView({ building, activeFloor, autoRotate, resetKey, exploded, stairType, paused = false }: Props) {
   const hostRef = useRef<HTMLDivElement>(null)
   // 描画ループから最新の props を読むための参照
   const state = useRef({ activeFloor, autoRotate, resetKey, exploded, stairType, paused })
@@ -40,6 +39,9 @@ export function MapView({ building, width, height, activeFloor, autoRotate, rese
   useEffect(() => {
     const host = hostRef.current!
     const { width: W, depth: D } = building
+    // 表示エリアの大きさ(Stage の座標系)。下の resize() で更新する
+    let width = Math.max(host.clientWidth, 1)
+    let height = Math.max(host.clientHeight, 1)
 
     const renderer = new THREE.WebGLRenderer({ antialias: true })
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
@@ -134,7 +136,19 @@ export function MapView({ building, width, height, activeFloor, autoRotate, rese
     composer.addPass(new UnrealBloomPass(new THREE.Vector2(width, height), 0.1, 0.1, 0.6))
     composer.addPass(new OutputPass())
 
-    for (const f of floors) for (const m of f.lineMaterials) m.resolution.set(width, height)
+    const resize = () => {
+      width = Math.max(host.clientWidth, 1)
+      height = Math.max(host.clientHeight, 1)
+      renderer.setSize(width, height)
+      labelRenderer.setSize(width, height)
+      composer.setSize(width, height)
+      camera.aspect = width / height
+      camera.updateProjectionMatrix()
+      for (const f of floors) for (const m of f.lineMaterials) m.resolution.set(width, height)
+    }
+    resize()
+    const observer = new ResizeObserver(resize)
+    observer.observe(host)
 
     // --- カメラ ---
     const goalTarget = new THREE.Vector3()
@@ -231,6 +245,7 @@ export function MapView({ building, width, height, activeFloor, autoRotate, rese
 
     return () => {
       cancelAnimationFrame(raf)
+      observer.disconnect()
       controls.dispose()
       composer.dispose()
       renderer.dispose()
@@ -242,7 +257,7 @@ export function MapView({ building, width, height, activeFloor, autoRotate, rese
       })
       host.replaceChildren()
     }
-  }, [building, width, height])
+  }, [building])
 
-  return <div ref={hostRef} className="map-view" style={{ width, height }} />
+  return <div ref={hostRef} className="map-view" />
 }

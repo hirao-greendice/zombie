@@ -2,9 +2,6 @@ import { useState } from 'react'
 import { MapView } from '../map/MapView'
 import { EAST_WING } from '../map/eastWing'
 import type { StairType } from '../map/types'
-import { STAGE_HEIGHT, STAGE_WIDTH } from '../config'
-
-const VIEW = { x: 40, y: 150, w: 1400, h: 1010 }
 
 // 平面図の印の意味が決まったらここを書き換える
 const LEGEND = [
@@ -38,31 +35,17 @@ export function MapScreen({ active }: { active: boolean }) {
   const zombieCount = shown.reduce((n, f) => n + f.markers.filter((m) => m.kind === 'zombie').length, 0)
 
   return (
-    <div className="screen map-screen">
-      <svg className="layer" viewBox={`0 0 ${STAGE_WIDTH} ${STAGE_HEIGHT}`} width={STAGE_WIDTH} height={STAGE_HEIGHT}>
-        <g className="line">
-          <path d="M40 60H700l30 30H1880" className="dim" />
-          <path d="M40 120H1880" className="dim" />
-          {/* 3D ビューの枠 */}
-          <path d={`M${VIEW.x} ${VIEW.y + 60}V${VIEW.y}H${VIEW.x + 60}`} />
-          <path d={`M${VIEW.x + VIEW.w - 60} ${VIEW.y}H${VIEW.x + VIEW.w}V${VIEW.y + 60}`} />
-          <path d={`M${VIEW.x} ${VIEW.y + VIEW.h - 60}V${VIEW.y + VIEW.h}H${VIEW.x + 60}`} />
-          <path d={`M${VIEW.x + VIEW.w - 60} ${VIEW.y + VIEW.h}H${VIEW.x + VIEW.w}V${VIEW.y + VIEW.h - 60}`} />
-        </g>
-      </svg>
-
-      <header className="map-header">
+    <div className="screen layout layout--map">
+      <header className="screen-header">
         <div className="map-title">
           <span className="map-title-main">{building.name}</span>
           <span className="map-title-sub">// 3D FACILITY MAP</span>
         </div>
       </header>
 
-      <div className="map-viewport" style={{ left: VIEW.x, top: VIEW.y, width: VIEW.w, height: VIEW.h }}>
+      <div className="layout-main hud-frame">
         <MapView
           building={building}
-          width={VIEW.w}
-          height={VIEW.h}
           activeFloor={activeFloor}
           autoRotate={autoRotate}
           resetKey={resetKey}
