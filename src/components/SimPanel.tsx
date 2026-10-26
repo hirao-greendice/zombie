@@ -18,12 +18,14 @@ interface Props {
   onResetAlly(): void
   /** これまでの動きを最初から再生する */
   onReplay(): void
+  /** 建物を一通り歩くデモの道順に戻す */
+  onLoadDemo(): void
   showTrail: boolean
   onShowTrailChange(show: boolean): void
 }
 
 /** マップの下に置く、仲間への指示を試す操作パネル */
-export function SimPanel({ onSend, onResetAlly, onReplay, showTrail, onShowTrailChange }: Props) {
+export function SimPanel({ onSend, onResetAlly, onReplay, onLoadDemo, showTrail, onShowTrailChange }: Props) {
   /** step = 1マスずつ / run = 壁まで */
   const [mode, setMode] = useState<'step' | 'run'>('step')
   const [text, setText] = useState('')
@@ -69,6 +71,9 @@ export function SimPanel({ onSend, onResetAlly, onReplay, showTrail, onShowTrail
       <div className="sim-group">
         <button className="sim-btn sim-btn--replay" onClick={onReplay}>
           ▶ リプレイ
+        </button>
+        <button className="sim-btn" onClick={onLoadDemo} title="建物を一通り歩くデモの道順に戻す">
+          デモ
         </button>
         <button className={`sim-btn sim-btn--mode ${showTrail ? 'is-active' : ''}`} onClick={() => onShowTrailChange(!showTrail)}>
           軌跡

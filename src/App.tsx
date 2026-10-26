@@ -49,6 +49,7 @@ export function App() {
             onSend={sendOrder}
             onResetAlly={sim.reset}
             onReplay={sim.replay}
+            onLoadDemo={sim.loadDemo}
           />
         </div>
         <div className={`tab-page ${tab === 'comms' ? '' : 'is-hidden'}`}>

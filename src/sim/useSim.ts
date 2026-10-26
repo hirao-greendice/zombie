@@ -1,7 +1,8 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Building, StairType } from '../map/types'
-import { buildNav } from './nav'
-import { initialSim, runOrders, type AllyPos, type Waypoint } from './simulate'
+import { buildNav, type Nav } from './nav'
+import { demoOrders } from './demo'
+import { initialSim, runOrders, type AllyPos, type SimState, type Waypoint } from './simulate'
 
 /** 3D マップに渡す仲間の動き */
 export interface AllyView {
@@ -19,18 +20,42 @@ export interface AllyView {
 
 const pointOf = (pos: AllyPos): Waypoint => ({ floor: pos.floor, x: pos.x + 0.5, y: pos.y + 0.5, rise: pos.roof ? 1 : 0 })
 
-/** 指示どおりに仲間がマップ上を動くシミュレーション */
+/** デモの道順を歩き終えた状態を作る(仲間は終点、軌跡は道順すべて) */
+function demoRun(nav: Nav, building: Building, stairType: StairType): { state: SimState; trail: Waypoint[] } {
+  const start = initialSim(nav, building.allyStart)
+  const orders = demoOrders(nav, start.pos, stairType)
+  const result = runOrders(start, orders.join(' '), nav, stairType)
+  return { state: result.state, trail: [pointOf(start.pos), ...result.route] }
+}
+
+/** 指示どおりに仲間がマップ上を動くシミュレーション。最初はデモの道順を歩き終えた状態 */
 export function useSim(building: Building, stairType: StairType) {
   const nav = useMemo(() => buildNav(building), [building])
-  const state = useRef(initialSim(nav, building.allyStart))
+  const initial = useMemo(() => demoRun(nav, building, stairType), [])
+  const state = useRef(initial.state)
   const [view, setView] = useState<AllyView>(() => ({
-    pos: state.current.pos,
+    pos: initial.state.pos,
     route: [],
     routeId: 0,
     snap: true,
-    trail: [pointOf(state.current.pos)],
+    trail: initial.trail,
     replayId: 0,
   }))
+
+  /** デモの道順を読み込む(仲間は終点に置き、軌跡を描く) */
+  const loadDemo = (type: StairType = stairType) => {
+    const demo = demoRun(nav, building, type)
+    state.current = demo.state
+    setView((v) => ({ ...v, pos: demo.state.pos, route: [], routeId: v.routeId + 1, snap: true, trail: demo.trail }))
+  }
+
+  // 階段の形を切り替えたら、その形でデモの道順を計算し直す
+  const firstStairType = useRef(stairType)
+  useEffect(() => {
+    if (stairType === firstStairType.current) return
+    firstStairType.current = stairType
+    loadDemo(stairType)
+  }, [stairType])
 
   return {
     view,
@@ -64,6 +89,8 @@ export function useSim(building: Building, stairType: StairType) {
     replay() {
       setView((v) => ({ ...v, replayId: v.replayId + 1 }))
     },
+    /** デモの道順に戻す */
+    loadDemo: () => loadDemo(),
   }
 }
 

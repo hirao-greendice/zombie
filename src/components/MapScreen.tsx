@@ -29,9 +29,10 @@ interface Props {
   onSend(text: string): void
   onResetAlly(): void
   onReplay(): void
+  onLoadDemo(): void
 }
 
-export function MapScreen({ building, active, stairType, onStairTypeChange, ally, onSend, onResetAlly, onReplay }: Props) {
+export function MapScreen({ building, active, stairType, onStairTypeChange, ally, onSend, onResetAlly, onReplay, onLoadDemo }: Props) {
   // 階ごとの表示 ON/OFF。?floor=2F,3F のように URL で初期表示の階を指定できる(確認用)
   const [shownFloors, setShownFloors] = useState<boolean[]>(() => {
     const ids = new URLSearchParams(location.search).get('floor')?.split(',')
@@ -87,6 +88,7 @@ export function MapScreen({ building, active, stairType, onStairTypeChange, ally
           onSend={onSend}
           onResetAlly={onResetAlly}
           onReplay={onReplay}
+          onLoadDemo={onLoadDemo}
           showTrail={showTrail}
           onShowTrailChange={setShowTrail}
         />
