@@ -7,7 +7,7 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
 import { CSS2DRenderer } from 'three/examples/jsm/renderers/CSS2DRenderer.js'
 import { buildFloor, COLORS, FLOOR_GAP, WALL_HEIGHT, type FloorHandle } from './buildFloor'
-import type { Building } from './types'
+import type { Building, StairType } from './types'
 
 interface Props {
   building: Building
@@ -20,6 +20,9 @@ interface Props {
   resetKey: number
   /** true: 各階を離して表示 / false: 実際の建物どおり積み重ねる */
   exploded: boolean
+  stairType: StairType
+  /** true のあいだ描画を止める(別タブ表示中など) */
+  paused?: boolean
 }
 
 // 透明度はリニア空間で効くため、sRGB 出力では見た目より明るくなる。小さめの値にしている
@@ -28,11 +31,11 @@ const DIM_ABOVE = 0.008
 const LIFT = 4
 const VIEW_DIR = new THREE.Vector3(1, 0.62, 1.15).normalize()
 
-export function MapView({ building, width, height, activeFloor, autoRotate, resetKey, exploded }: Props) {
+export function MapView({ building, width, height, activeFloor, autoRotate, resetKey, exploded, stairType, paused = false }: Props) {
   const hostRef = useRef<HTMLDivElement>(null)
   // 描画ループから最新の props を読むための参照
-  const state = useRef({ activeFloor, autoRotate, resetKey, exploded })
-  state.current = { activeFloor, autoRotate, resetKey, exploded }
+  const state = useRef({ activeFloor, autoRotate, resetKey, exploded, stairType, paused })
+  state.current = { activeFloor, autoRotate, resetKey, exploded, stairType, paused }
 
   useEffect(() => {
     const host = hostRef.current!
@@ -169,6 +172,7 @@ export function MapView({ building, width, height, activeFloor, autoRotate, rese
     const loop = () => {
       raf = requestAnimationFrame(loop)
       const dt = Math.min(clock.getDelta(), 0.1)
+      if (state.current.paused) return
       const t = clock.elapsedTime
       const { activeFloor: af, autoRotate: ar, resetKey: rk, exploded: ex } = state.current
       const k = 1 - Math.exp(-dt * 4)
@@ -198,6 +202,7 @@ export function MapView({ building, width, height, activeFloor, autoRotate, rese
       floors.forEach((f, i) => {
         visibility[i] = THREE.MathUtils.lerp(visibility[i], visibilityGoal(i), k)
         f.setVisibility(visibility[i])
+        f.setStairType(state.current.stairType)
         f.group.position.y = THREE.MathUtils.lerp(f.group.position.y, liftGoal(i), k)
         f.tick(t)
       })

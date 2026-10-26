@@ -16,12 +16,21 @@ export interface Door {
   b: Pt
 }
 
-/** 平面図の丸・四角の印。意味が決まったら名前を付け替える */
-export type MarkerKind = 'black' | 'blue' | 'red'
+/**
+ * black / blue / red: 平面図の丸・四角の印(意味が決まったら名前を付け替える)
+ * zombie: 通路をふさぐゾンビ / arrival: 下の階から上ってきた到着地点
+ */
+export type MarkerKind = 'black' | 'blue' | 'red' | 'zombie' | 'arrival'
+
+/** 階段の形。straight = 一直線、uturn = 踊り場で折り返す U 字 */
+export type StairType = 'straight' | 'uturn'
 
 export interface Marker {
   kind: MarkerKind
   at: Pt
+  label?: string
+  /** 指定すると、その階段の形のときだけ表示する(到着地点は階段の形で変わるため) */
+  onlyFor?: StairType
 }
 
 export interface Floor {

@@ -1,13 +1,16 @@
 import { useState } from 'react'
 import { MapView } from '../map/MapView'
 import { EAST_WING } from '../map/eastWing'
+import type { StairType } from '../map/types'
 import { STAGE_HEIGHT, STAGE_WIDTH } from '../config'
 
 const VIEW = { x: 40, y: 150, w: 1400, h: 1010 }
 
 // 平面図の印の意味が決まったらここを書き換える
 const LEGEND = [
-  { cls: 'legend-gem danger', text: '黒丸マーカー' },
+  { cls: 'legend-zombie', text: 'ゾンビ(通行不可)' },
+  { cls: 'legend-arrival', text: '到着地点(下の階から)' },
+  { cls: 'legend-gem neutral', text: '黒丸マーカー' },
   { cls: 'legend-gem info', text: '青丸マーカー' },
   { cls: 'legend-box danger', text: '赤四角マーカー' },
   { cls: 'legend-door', text: '出入口' },
@@ -15,7 +18,8 @@ const LEGEND = [
   { cls: 'legend-fill info', text: '階段 / EV' },
 ]
 
-export function MapScreen() {
+/** active: 表示中のタブかどうか(非表示中は 3D の描画を止める) */
+export function MapScreen({ active }: { active: boolean }) {
   const building = EAST_WING
   // ?floor=2F のように URL で初期表示の階を指定できる(確認用)
   const [activeFloor, setActiveFloor] = useState<number | null>(() => {
@@ -25,9 +29,13 @@ export function MapScreen() {
   const [autoRotate, setAutoRotate] = useState(true)
   const [resetKey, setResetKey] = useState(0)
   const [exploded, setExploded] = useState(() => new URLSearchParams(location.search).get('stack') === null)
+  const [stairType, setStairType] = useState<StairType>(() =>
+    new URLSearchParams(location.search).get('stairs') === 'uturn' ? 'uturn' : 'straight',
+  )
 
   const floor = activeFloor === null ? null : building.floors[activeFloor]
-  const markerCount = (floor ? [floor] : building.floors).reduce((n, f) => n + f.markers.length, 0)
+  const shown = floor ? [floor] : building.floors
+  const zombieCount = shown.reduce((n, f) => n + f.markers.filter((m) => m.kind === 'zombie').length, 0)
 
   return (
     <div className="screen map-screen">
@@ -48,7 +56,6 @@ export function MapScreen() {
           <span className="map-title-main">{building.name}</span>
           <span className="map-title-sub">// 3D FACILITY MAP</span>
         </div>
-        <div className="map-status blink">● LIVE SCAN</div>
       </header>
 
       <div className="map-viewport" style={{ left: VIEW.x, top: VIEW.y, width: VIEW.w, height: VIEW.h }}>
@@ -60,6 +67,8 @@ export function MapScreen() {
           autoRotate={autoRotate}
           resetKey={resetKey}
           exploded={exploded}
+          stairType={stairType}
+          paused={!active}
         />
         <div className="map-viewport-caption">
           {floor ? `FLOOR ${floor.id}` : 'ALL FLOORS'} &nbsp;/&nbsp; DRAG: ROTATE &nbsp;/&nbsp; PINCH: ZOOM
@@ -88,9 +97,9 @@ export function MapScreen() {
           <dt>FLOOR</dt>
           <dd>{floor ? floor.id : `1F - ${building.floors.length}F`}</dd>
           <dt>ROOMS</dt>
-          <dd>{(floor ? [floor] : building.floors).reduce((n, f) => n + f.rooms.length, 0)}</dd>
-          <dt>SIGNALS</dt>
-          <dd className="danger">{markerCount}</dd>
+          <dd>{shown.reduce((n, f) => n + f.rooms.length, 0)}</dd>
+          <dt>HOSTILES</dt>
+          <dd className="danger">{zombieCount}</dd>
         </dl>
 
         <div className="panel-heading">LEGEND</div>
@@ -104,14 +113,21 @@ export function MapScreen() {
         </ul>
 
         <div className="panel-actions">
+          <button className="panel-btn" onClick={() => setStairType(stairType === 'straight' ? 'uturn' : 'straight')}>
+            <small>STAIRS</small>
+            {stairType === 'straight' ? 'STRAIGHT' : 'U-TURN'}
+          </button>
           <button className={`panel-btn ${exploded ? '' : 'is-active'}`} onClick={() => setExploded(!exploded)}>
-            {exploded ? 'STACK FLOORS' : 'SPLIT FLOORS'}
+            <small>FLOORS</small>
+            {exploded ? 'SPLIT' : 'STACKED'}
           </button>
           <button className={`panel-btn ${autoRotate ? 'is-active' : ''}`} onClick={() => setAutoRotate(!autoRotate)}>
-            AUTO ROTATE
+            <small>ROTATE</small>
+            {autoRotate ? 'AUTO' : 'OFF'}
           </button>
           <button className="panel-btn" onClick={() => setResetKey(resetKey + 1)}>
-            RESET VIEW
+            <small>VIEW</small>
+            RESET
           </button>
         </div>
       </aside>
