@@ -1,0 +1,120 @@
+import { useState } from 'react'
+import { MapView } from '../map/MapView'
+import { EAST_WING } from '../map/eastWing'
+import { STAGE_HEIGHT, STAGE_WIDTH } from '../config'
+
+const VIEW = { x: 40, y: 150, w: 1400, h: 1010 }
+
+// 平面図の印の意味が決まったらここを書き換える
+const LEGEND = [
+  { cls: 'legend-gem danger', text: '黒丸マーカー' },
+  { cls: 'legend-gem info', text: '青丸マーカー' },
+  { cls: 'legend-box danger', text: '赤四角マーカー' },
+  { cls: 'legend-door', text: '出入口' },
+  { cls: 'legend-fill key', text: '番号付きの部屋' },
+  { cls: 'legend-fill info', text: '階段 / EV' },
+]
+
+export function MapScreen() {
+  const building = EAST_WING
+  // ?floor=2F のように URL で初期表示の階を指定できる(確認用)
+  const [activeFloor, setActiveFloor] = useState<number | null>(() => {
+    const i = building.floors.findIndex((f) => f.id === new URLSearchParams(location.search).get('floor'))
+    return i < 0 ? null : i
+  })
+  const [autoRotate, setAutoRotate] = useState(true)
+  const [resetKey, setResetKey] = useState(0)
+  const [exploded, setExploded] = useState(() => new URLSearchParams(location.search).get('stack') === null)
+
+  const floor = activeFloor === null ? null : building.floors[activeFloor]
+  const markerCount = (floor ? [floor] : building.floors).reduce((n, f) => n + f.markers.length, 0)
+
+  return (
+    <div className="screen map-screen">
+      <svg className="layer" viewBox={`0 0 ${STAGE_WIDTH} ${STAGE_HEIGHT}`} width={STAGE_WIDTH} height={STAGE_HEIGHT}>
+        <g className="line">
+          <path d="M40 60H700l30 30H1880" className="dim" />
+          <path d="M40 120H1880" className="dim" />
+          {/* 3D ビューの枠 */}
+          <path d={`M${VIEW.x} ${VIEW.y + 60}V${VIEW.y}H${VIEW.x + 60}`} />
+          <path d={`M${VIEW.x + VIEW.w - 60} ${VIEW.y}H${VIEW.x + VIEW.w}V${VIEW.y + 60}`} />
+          <path d={`M${VIEW.x} ${VIEW.y + VIEW.h - 60}V${VIEW.y + VIEW.h}H${VIEW.x + 60}`} />
+          <path d={`M${VIEW.x + VIEW.w - 60} ${VIEW.y + VIEW.h}H${VIEW.x + VIEW.w}V${VIEW.y + VIEW.h - 60}`} />
+        </g>
+      </svg>
+
+      <header className="map-header">
+        <div className="map-title">
+          <span className="map-title-main">{building.name}</span>
+          <span className="map-title-sub">// 3D FACILITY MAP</span>
+        </div>
+        <div className="map-status blink">● LIVE SCAN</div>
+      </header>
+
+      <div className="map-viewport" style={{ left: VIEW.x, top: VIEW.y, width: VIEW.w, height: VIEW.h }}>
+        <MapView
+          building={building}
+          width={VIEW.w}
+          height={VIEW.h}
+          activeFloor={activeFloor}
+          autoRotate={autoRotate}
+          resetKey={resetKey}
+          exploded={exploded}
+        />
+        <div className="map-viewport-caption">
+          {floor ? `FLOOR ${floor.id}` : 'ALL FLOORS'} &nbsp;/&nbsp; DRAG: ROTATE &nbsp;/&nbsp; PINCH: ZOOM
+        </div>
+      </div>
+
+      <aside className="map-panel">
+        <div className="panel-heading">FLOOR SELECT</div>
+        <div className="floor-buttons">
+          {[...building.floors.keys()].reverse().map((i) => (
+            <button
+              key={i}
+              className={`floor-btn ${activeFloor === i ? 'is-active' : ''}`}
+              onClick={() => setActiveFloor(activeFloor === i ? null : i)}
+            >
+              {building.floors[i].id}
+            </button>
+          ))}
+          <button className={`floor-btn floor-btn--all ${activeFloor === null ? 'is-active' : ''}`} onClick={() => setActiveFloor(null)}>
+            ALL
+          </button>
+        </div>
+
+        <div className="panel-heading">STATUS</div>
+        <dl className="panel-stats">
+          <dt>FLOOR</dt>
+          <dd>{floor ? floor.id : `1F - ${building.floors.length}F`}</dd>
+          <dt>ROOMS</dt>
+          <dd>{(floor ? [floor] : building.floors).reduce((n, f) => n + f.rooms.length, 0)}</dd>
+          <dt>SIGNALS</dt>
+          <dd className="danger">{markerCount}</dd>
+        </dl>
+
+        <div className="panel-heading">LEGEND</div>
+        <ul className="panel-legend">
+          {LEGEND.map((l) => (
+            <li key={l.text}>
+              <i className={l.cls} />
+              {l.text}
+            </li>
+          ))}
+        </ul>
+
+        <div className="panel-actions">
+          <button className={`panel-btn ${exploded ? '' : 'is-active'}`} onClick={() => setExploded(!exploded)}>
+            {exploded ? 'STACK FLOORS' : 'SPLIT FLOORS'}
+          </button>
+          <button className={`panel-btn ${autoRotate ? 'is-active' : ''}`} onClick={() => setAutoRotate(!autoRotate)}>
+            AUTO ROTATE
+          </button>
+          <button className="panel-btn" onClick={() => setResetKey(resetKey + 1)}>
+            RESET VIEW
+          </button>
+        </div>
+      </aside>
+    </div>
+  )
+}
