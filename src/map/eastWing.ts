@@ -17,6 +17,8 @@ export const EAST_WING: Building = {
   name: 'EAST WING',
   width: 10,
   depth: 15,
+  // 1F の青丸の位置
+  allyStart: { floor: 0, at: [7, 8] },
   floors: [
     {
       id: '1F',

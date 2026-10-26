@@ -7,21 +7,25 @@ import { computeWalls } from './walls'
 import { straightStairs, uTurnStairs } from './stairs'
 import type { Floor, MarkerKind, RoomKind, StairType } from './types'
 
-export const WALL_HEIGHT = 1
-export const FLOOR_GAP = 4.5
+export const WALL_HEIGHT = 2
+// 離して表示するときの階の間隔(壁の高さ + すき間 3.5)
+export const FLOOR_GAP = 5.5
 
+// 役割ごとに色を分ける: 壁 = 緑 / 出入口・番号の部屋 = 黄 / 階段・EV = 青 / ゾンビ = 赤 / 仲間 = 白
 export const COLORS = {
   line: 0x3dffa2,
-  grid: 0x1f6b4a,
+  grid: 0x1a5a40,
   door: 0xffc23d,
   key: 0xffc23d,
-  stairs: 0x3dc8ff,
+  stairs: 0x4aa8ff,
   danger: 0xff3b3b,
-  neutral: 0xd8e8e0,
+  neutral: 0x8a9a94,
+  ally: 0xffffff,
+  slab: 0x010604,
 }
 
-const ROOM_FILL: Record<RoomKind, number> = {
-  room: COLORS.line,
+/** 部屋の床の色(room は階の色を使う) */
+const ROOM_FILL: Record<Exclude<RoomKind, 'room'>, number> = {
   key: COLORS.key,
   stairs: COLORS.stairs,
   ev: COLORS.stairs,
@@ -48,7 +52,7 @@ const ZOMBIE_FIGURE: [Vec, Vec][] = [
 /** 階ごとの透明度をまとめて上げ下げするための登録簿 */
 export interface FloorHandle {
   group: THREE.Group
-  /** 1 = 通常表示、0 に近いほど暗くなる */
+  /** 1 = 通常表示、0 で非表示 */
   setVisibility(v: number): void
   /** 毎フレーム呼ぶ(マーカーのアニメーション) */
   tick(t: number): void
@@ -59,7 +63,9 @@ export interface FloorHandle {
 
 type Vec = [number, number, number]
 
-export function buildFloor(floor: Floor, width: number, depth: number): FloorHandle {
+/** color: この階の壁・床の色(floorColors.ts) */
+export function buildFloor(floor: Floor, width: number, depth: number, color: number = COLORS.line): FloorHandle {
+  const gridColor = new THREE.Color(color).multiplyScalar(0.45).getHex()
   const group = new THREE.Group()
   const fades: { mat: { opacity: number }; base: number }[] = []
   const labels: HTMLElement[] = []
@@ -111,16 +117,22 @@ export function buildFloor(floor: Floor, width: number, depth: number): FloorHan
   const grid: [Vec, Vec][] = []
   for (let x = 1; x < width; x++) grid.push([P(x, 0), P(x, depth)])
   for (let y = 1; y < depth; y++) grid.push([P(0, y), P(width, y)])
-  lines(grid, COLORS.grid, 1, 0.35)
+  lines(grid, gridColor, 1, 0.18)
 
-  const slab = new THREE.Mesh(new THREE.PlaneGeometry(width, depth), fillMat(COLORS.line, 0.015))
+  // 暗い床板。下の階の線が透けて重なりすぎないように、手前の階で少し隠す
+  const slab = new THREE.Mesh(
+    new THREE.PlaneGeometry(width, depth),
+    fade(new THREE.MeshBasicMaterial({ color: COLORS.slab, transparent: true, depthWrite: false, side: THREE.DoubleSide }), 0.7),
+  )
   slab.rotation.x = -Math.PI / 2
+  slab.position.y = -0.02
+  slab.userData.slab = true
   group.add(slab)
 
   // --- 部屋の床塗り ---
   for (const room of floor.rooms) {
     const shape = new THREE.Shape(room.poly.map(([x, y]) => new THREE.Vector2(x - width / 2, -(y - depth / 2))))
-    const mesh = new THREE.Mesh(new THREE.ShapeGeometry(shape), fillMat(ROOM_FILL[room.kind], room.kind === 'room' ? 0.04 : 0.1))
+    const mesh = new THREE.Mesh(new THREE.ShapeGeometry(shape), fillMat(room.kind === 'room' ? color : ROOM_FILL[room.kind], room.kind === 'room' ? 0.09 : 0.16))
     mesh.rotation.x = -Math.PI / 2
     mesh.position.y = 0.01
     group.add(mesh)
@@ -148,13 +160,14 @@ export function buildFloor(floor: Floor, width: number, depth: number): FloorHan
     byStairType.uturn.push(make(uTurnStairs))
   }
 
-  // --- 壁: 上辺・下辺・端の縦線 + 半透明の面 ---
-  const wallSegs: [Vec, Vec][] = []
-  const wallMat = fillMat(COLORS.line, 0.025)
+  // --- 壁: 上辺は明るく(上から見て間取りが読める)、下辺と縦線は控えめに + 半透明の面 ---
+  const wallTops: [Vec, Vec][] = []
+  const wallFrames: [Vec, Vec][] = []
+  const wallMat = fillMat(color, 0.03)
   for (const [[x1, y1], [x2, y2]] of computeWalls(floor, width, depth)) {
-    wallSegs.push(
+    wallTops.push([P(x1, y1, WALL_HEIGHT), P(x2, y2, WALL_HEIGHT)])
+    wallFrames.push(
       [P(x1, y1), P(x2, y2)],
-      [P(x1, y1, WALL_HEIGHT), P(x2, y2, WALL_HEIGHT)],
       [P(x1, y1), P(x1, y1, WALL_HEIGHT)],
       [P(x2, y2), P(x2, y2, WALL_HEIGHT)],
     )
@@ -165,7 +178,8 @@ export function buildFloor(floor: Floor, width: number, depth: number): FloorHan
     if (x1 === x2) plane.rotation.y = Math.PI / 2
     group.add(plane)
   }
-  lines(wallSegs, COLORS.line, 2.2)
+  lines(wallFrames, color, 1.2, 0.35)
+  lines(wallTops, color, 2.6)
 
   // --- ドア: 開口部に門型の枠 ---
   const doorSegs: [Vec, Vec][] = []
@@ -254,7 +268,7 @@ export function buildFloor(floor: Floor, width: number, depth: number): FloorHan
       pulseRing(marker, color, phase)
       animated.push((t) => {
         const p = (t * 0.6) % 1
-        arrow.position.y = 0.2 + p * 0.8
+        arrow.position.y = 0.2 + p * WALL_HEIGHT * 0.8
         arrow.rotation.y = t
       })
       if (m.label) label(m.label, 'map-label map-label--arrival', [0, WALL_HEIGHT + 0.3, 0], marker)
@@ -292,6 +306,7 @@ export function buildFloor(floor: Floor, width: number, depth: number): FloorHan
 
   // 階の名前
   label(floor.id, 'map-label map-label--floor', P(-0.9, depth, 0))
+  labels[labels.length - 1].style.color = `#${color.toString(16).padStart(6, '0')}`
 
   let currentVisibility = 1
   return {
@@ -300,7 +315,9 @@ export function buildFloor(floor: Floor, width: number, depth: number): FloorHan
     setVisibility(v) {
       currentVisibility = v
       for (const f of fades) f.mat.opacity = f.base * v
-      for (const el of labels) el.style.opacity = String(Math.max(v, 0.15))
+      for (const el of labels) el.style.opacity = String(v)
+      // ほぼ消えたら描画自体をやめる(ラベルも消える)
+      group.visible = v > 0.01
     },
     tick(t) {
       for (const fn of animated) fn(t)

@@ -3,7 +3,8 @@ import { COMMS_STEPS } from './steps'
 
 export interface CommsMessage {
   id: number
-  from: 'me' | 'system'
+  /** me = こちらの指示 / ally = 仲間の返事 / system = 受信記録 */
+  from: 'me' | 'ally' | 'system'
   text: string
   time: number
 }
@@ -84,6 +85,13 @@ export function useComms() {
         const hit = answers.some((a) => normalize(body).includes(normalize(a)))
         return hit ? unlockTo(next, prev.unlocked + 1) : next
       })
+    },
+    /** 仲間からの返事をログに足す */
+    receive(text: string) {
+      setState((prev) => ({
+        ...prev,
+        messages: [...prev.messages, { id: prev.messages.length + 1, from: 'ally' as const, text, time: Date.now() }],
+      }))
     },
     markSeen(step: number) {
       setState((prev) => (step > prev.seen ? { ...prev, seen: step } : prev))

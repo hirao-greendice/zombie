@@ -21,12 +21,13 @@ function toggleFullscreen() {
 
 /** 実機の画面サイズ確認用。D キー or 左上を3回タップで表示切替、F でフルスクリーン */
 export function DevOverlay() {
-  const [visible, setVisible] = useState(true)
+  const [visible, setVisible] = useState(false)
   const [info, setInfo] = useState(readInfo)
 
   useEffect(() => {
     const onResize = () => setInfo(readInfo())
     const onKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement) return
       if (e.key === 'd') setVisible((v) => !v)
       if (e.key === 'f') toggleFullscreen()
     }

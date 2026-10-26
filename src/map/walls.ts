@@ -1,7 +1,10 @@
 import type { Floor, Pt } from './types'
 
-/** 部屋の外周・建物の外壁・間仕切りから、開口部を除いた壁の線分を作る(座標は整数前提) */
-export function computeWalls(floor: Floor, width: number, depth: number): [Pt, Pt][] {
+/**
+ * 開口部を除いた壁を1マス単位の断片で返す(座標は整数前提)。
+ * 'h,x,y' = y の線上の x〜x+1、'v,x,y' = x の線上の y〜y+1
+ */
+export function wallPieces(floor: Floor, width: number, depth: number): Set<string> {
   const pieces = new Set<string>()
   const addEdge = ([x1, y1]: Pt, [x2, y2]: Pt) => {
     if (y1 === y2) for (let x = Math.min(x1, x2); x < Math.max(x1, x2); x++) pieces.add(`h,${x},${y1}`)
@@ -15,6 +18,12 @@ export function computeWalls(floor: Floor, width: number, depth: number): [Pt, P
   floor.doors.forEach(({ a, b }) =>
     pieces.delete(a[1] === b[1] ? `h,${Math.min(a[0], b[0])},${a[1]}` : `v,${a[0]},${Math.min(a[1], b[1])}`),
   )
+  return pieces
+}
+
+/** 部屋の外周・建物の外壁・間仕切りから、開口部を除いた壁の線分を作る */
+export function computeWalls(floor: Floor, width: number, depth: number): [Pt, Pt][] {
+  const pieces = wallPieces(floor, width, depth)
 
   // 1マス単位の断片を、一直線につながるものごとにまとめ直す
   const lines = new Map<string, number[]>()

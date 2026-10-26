@@ -7,11 +7,13 @@ const pad = (n: number) => String(n).padStart(2, '0')
 
 interface Props {
   comms: Comms
+  /** 指示を送る(仲間のシミュレーションも動かす) */
+  onSend(text: string): void
   /** 表示中のタブかどうか(表示中に見た通信だけ既読にする) */
   active: boolean
 }
 
-export function CommsScreen({ comms, active }: Props) {
+export function CommsScreen({ comms, onSend, active }: Props) {
   const [selected, setSelected] = useState(comms.unlocked)
   const [incoming, setIncoming] = useState(false)
   const [draft, setDraft] = useState('')
@@ -40,7 +42,7 @@ export function CommsScreen({ comms, active }: Props) {
   }, [comms.messages.length, active])
 
   const send = () => {
-    comms.send(draft)
+    onSend(draft)
     setDraft('')
   }
 
@@ -101,7 +103,7 @@ export function CommsScreen({ comms, active }: Props) {
           {comms.messages.map((m) => (
             <div key={m.id} className={`comms-msg comms-msg--${m.from}`}>
               <span className="comms-msg-time">{clock(m.time)}</span>
-              <span className="comms-msg-text">{m.from === 'system' ? `▼ ${m.text}` : m.text}</span>
+              <span className="comms-msg-text">{m.from === 'system' ? `▼ ${m.text}` : m.from === 'ally' ? `◀ ${m.text}` : m.text}</span>
             </div>
           ))}
         </div>

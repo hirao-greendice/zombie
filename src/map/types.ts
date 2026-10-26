@@ -49,4 +49,6 @@ export interface Building {
   depth: number
   /** 下の階から順に */
   floors: Floor[]
+  /** シミュレーションで仲間が最初にいる場所(floor は floors の index、at はマスの左上) */
+  allyStart?: { floor: number; at: Pt }
 }
