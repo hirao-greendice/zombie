@@ -177,7 +177,7 @@ function VideoMonitor({ src }: { src: string }) {
           <Noise />
           <div className="comms-nosignal">
             <div>NO SIGNAL</div>
-            <small>映像ファイル未配置: public{src}</small>
+            <small>映像ファイル未配置: public/{src}</small>
           </div>
         </>
       ) : (
