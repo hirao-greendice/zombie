@@ -28,19 +28,36 @@ function shortestPath(nav: Nav, floor: number, from: Cell, to: Cell, stairType: 
   return null
 }
 
+/** 縦か横に一直線に並んだ2マスのあいだの道(壁は気にしない。斜めの位置なら null) */
+function straightPath(from: Cell, to: Cell): Dir[] | null {
+  if (from.x !== to.x && from.y !== to.y) return null
+  const dir: Dir = to.x > from.x ? 'e' : to.x < from.x ? 'w' : to.y > from.y ? 's' : 'n'
+  return Array(Math.abs(to.x - from.x) + Math.abs(to.y - from.y)).fill(dir)
+}
+
 /**
- * デモ用の指示の列: 各階で階段の入口まで最短で歩いて上の階へ、を屋上まで繰り返す。
- * マップのデータから毎回計算するので、ゾンビや間取りを変えてもそのまま使える
+ * デモ用の指示の列: 各階で平面図の道順(route)をたどり、上の階があれば階段の入口まで歩いて上る、を繰り返す。
+ * 道順の曲がり角どうしはまっすぐ歩く。今いる場所と道順の始まり、道順の終わりと階段の入口がずれているときは、
+ * そのあいだを最短の道でつなぐ(道順の無い階は階段まで最短で歩くだけ)
  */
 export function demoOrders(nav: Nav, start: { floor: number; x: number; y: number }, stairType: StairType): string[] {
   const orders: string[] = []
   let floor = start.floor
   let cell: Cell = { x: start.x, y: start.y }
   while (floor < nav.floors.length) {
-    const stairs = nav.floors[floor].stairs
-    if (!stairs) break
-    const path = shortestPath(nav, floor, cell, stairs.entry, stairType)
-    if (!path) break
+    const nf = nav.floors[floor]
+    const above = nav.floors[floor + 1]
+    const path: Dir[] = []
+    /** cell から to まで歩いた道を path に足す。たどり着けなければ false */
+    const walkTo = (to: Cell, straight: boolean) => {
+      const dirs = (straight && straightPath(cell, to)) || shortestPath(nav, floor, cell, to, stairType)
+      if (!dirs) return false
+      path.push(...dirs)
+      cell = to
+      return true
+    }
+    const followed = nf.route.every((c, i) => walkTo(c, i > 0))
+    const climb = followed && !!above && !!nf.stairs && walkTo(nf.stairs.entry, false)
     // 同じ向きが続くところは「⬆️3」のようにまとめる
     for (let i = 0; i < path.length; ) {
       let j = i
@@ -48,10 +65,9 @@ export function demoOrders(nav: Nav, start: { floor: number; x: number; y: numbe
       orders.push(`${ARROW[path[i]]}${j - i}`)
       i = j
     }
+    if (!climb || !above) break
     orders.push('上る')
     floor++
-    const above = nav.floors[floor]
-    if (!above) break
     cell = above.arrival[stairType] ?? above.stairs?.entry ?? cell
   }
   return orders

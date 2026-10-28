@@ -32,6 +32,8 @@ export interface NavFloor {
   stairs: StairsInfo | null
   /** 下の階から上ってきたときに出るマス(階段の形ごと) */
   arrival: Partial<Record<StairType, Cell>>
+  /** 平面図に描かれた仲間の道順(曲がり角のマス) */
+  route: Cell[]
 }
 
 export interface Nav {
@@ -82,9 +84,20 @@ export function buildNav(building: Building): Nav {
         zombies: new Set(f.markers.filter((m) => m.kind === 'zombie').map((m) => cellKey(toCell(m.at)))),
         stairs: stairsOf(f),
         arrival,
+        route: (f.route ?? []).map(toCell),
       }
     }),
   }
+}
+
+/**
+ * 直階段で、上ってきた降り口が上りの入口と別のマス(階段室の奥)にあるときの降り口。
+ * そのときは階段室の中が、降り口の列と上りの階段とで階段にへだてられる。入口と同じなら null
+ */
+export function splitArrival(nf: NavFloor, stairType: StairType): Cell | null {
+  const arr = nf.arrival.straight
+  if (stairType !== 'straight' || !arr || !nf.stairs) return null
+  return arr.x === nf.stairs.entry.x && arr.y === nf.stairs.entry.y ? null : arr
 }
 
 export const inStairs = (s: StairsInfo | null, c: Cell) =>
@@ -99,8 +112,8 @@ export function stepResult(nav: Nav, nf: NavFloor, c: Cell, dir: Dir, stairType:
     dx === 1 ? `v,${c.x + 1},${c.y}` : dx === -1 ? `v,${c.x},${c.y}` : dy === 1 ? `h,${c.x},${c.y + 1}` : `h,${c.x},${c.y}`
   if (nf.walls.has(edge)) return 'wall'
   // 直階段: 上ってきた降り口(階段室の奥)と、上りの階段がある側は階段でへだてられている
-  const arr = nf.arrival.straight
-  if (stairType === 'straight' && arr && dy !== 0 && inStairs(nf.stairs, c) && inStairs(nf.stairs, next)) {
+  const arr = splitArrival(nf, stairType)
+  if (arr && dy !== 0 && inStairs(nf.stairs, c) && inStairs(nf.stairs, next)) {
     if ((c.y === arr.y) !== (next.y === arr.y)) return 'wall'
   }
   if (nf.zombies.has(cellKey(next))) return 'zombie'

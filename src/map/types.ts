@@ -39,7 +39,14 @@ export interface Floor {
   doors: Door[]
   /** 部屋の外周以外の間仕切り */
   walls?: [Pt, Pt][]
+  /** 鉄格子(平面図の破線)。壁と同じく通れないが、中が見える */
+  bars?: [Pt, Pt][]
   markers: Marker[]
+  /**
+   * 仲間の道順(平面図の赤い線)。曲がり角のマスを通る順に並べる。
+   * デモはこれをたどり、上の階があれば最後に階段から上る
+   */
+  route?: Pt[]
 }
 
 export interface Building {

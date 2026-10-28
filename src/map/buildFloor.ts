@@ -3,13 +3,15 @@ import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js'
 import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js'
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js'
 import { CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js'
-import { computeWalls } from './walls'
+import { barPieces, computeWalls, mergePieces } from './walls'
 import { straightStairs, uTurnStairs } from './stairs'
 import type { Floor, MarkerKind, RoomKind, StairType } from './types'
 
 export const WALL_HEIGHT = 2
 // 離して表示するときの階の間隔(壁の高さ + すき間 3.5)
 export const FLOOR_GAP = 5.5
+/** 鉄格子の縦棒の間隔 */
+const BAR_STEP = 0.25
 
 // 役割ごとに色を分ける: 壁 = 緑 / 出入口・番号の部屋 = 黄 / 階段・EV = 青 / ゾンビ = 赤 / 仲間 = 白
 export const COLORS = {
@@ -180,6 +182,20 @@ export function buildFloor(floor: Floor, width: number, depth: number, color: nu
   }
   lines(wallFrames, color, 1.2, 0.35)
   lines(wallTops, color, 2.6)
+
+  // --- 鉄格子: 上下の横棒と、等間隔の縦棒(面は張らず、中が透けて見える) ---
+  const barSegs: [Vec, Vec][] = []
+  for (const [[x1, y1], [x2, y2]] of mergePieces(barPieces(floor))) {
+    barSegs.push([P(x1, y1, 0.02), P(x2, y2, 0.02)], [P(x1, y1, WALL_HEIGHT), P(x2, y2, WALL_HEIGHT)])
+    const len = Math.hypot(x2 - x1, y2 - y1)
+    const n = Math.round(len / BAR_STEP)
+    for (let i = 0; i <= n; i++) {
+      const x = x1 + ((x2 - x1) * i) / n
+      const y = y1 + ((y2 - y1) * i) / n
+      barSegs.push([P(x, y), P(x, y, WALL_HEIGHT)])
+    }
+  }
+  if (barSegs.length) lines(barSegs, color, 1.4, 0.8)
 
   // --- ドア: 開口部に門型の枠 ---
   const doorSegs: [Vec, Vec][] = []

@@ -191,6 +191,7 @@ html, body, #root {
 .map-label--stairs, .map-label--ev { color: #4aa8ff; }
 .map-label--compass { color: var(--text); font-size: 22px; letter-spacing: 0.1em; opacity: 0.8; }
 .map-label--ally { color: #fff; font-family: var(--font-display); font-size: 18px; letter-spacing: 0.15em; }
+.map-label--wing { color: var(--text); font-family: var(--font-display); font-size: 26px; letter-spacing: 0.2em; opacity: 0.85; }
 .map-label--arrival { color: #4aa8ff; font-size: 18px; letter-spacing: 0.1em; }
 .map-label--floor {
   font-family: var(--font-display);
@@ -231,6 +232,11 @@ html, body, #root {
   box-shadow: 0 0 24px var(--floor-color);
 }
 .floor-btn--all { font-size: 30px; }
+.floor-buttons--wing { grid-template-columns: repeat(3, 1fr); }
+.floor-btn--wing { height: 64px; font-size: 26px; }
+/* 両方の棟を並べたときの、指示を送る相手の切り替え */
+.target-buttons { display: grid; grid-template-columns: auto 1fr 1fr; align-items: center; gap: 12px; font-size: 18px; letter-spacing: 0.15em; }
+.target-buttons .panel-btn { height: 52px; font-size: 22px; }
 .floor-btn.is-active, .panel-btn.is-active {
   color: var(--bg);
   background: var(--line);
@@ -266,6 +272,7 @@ html, body, #root {
   border-right: 8px solid transparent;
   border-bottom: 16px solid #4aa8ff;
 }
+.legend-bars { border-left: 2px solid var(--line); border-right: 2px solid var(--line); background: repeating-linear-gradient(90deg, transparent 0 4px, var(--line) 4px 6px); }
 .legend-fill { border: 1px solid; }
 .legend-fill.key { border-color: var(--warn); background: rgba(255, 194, 61, 0.25); }
 .legend-fill.info { border-color: #4aa8ff; background: rgba(74, 168, 255, 0.25); }

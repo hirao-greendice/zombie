@@ -1,6 +1,7 @@
 import { useState, type CSSProperties } from 'react'
 import { MapView } from '../map/MapView'
-import type { Building, StairType } from '../map/types'
+import type { StairType } from '../map/types'
+import { BUILDINGS_IN, WINGS, WINGS_IN, type WingId, type WingView } from '../map/wings'
 import type { AllyView } from '../sim/useSim'
 import { SimPanel } from './SimPanel'
 import { floorColorCss } from '../map/floorColors'
@@ -14,25 +15,40 @@ const LEGEND = [
   { cls: 'legend-gem info', text: '青丸マーカー' },
   { cls: 'legend-box danger', text: '赤四角マーカー' },
   { cls: 'legend-door', text: '出入口' },
+  { cls: 'legend-bars', text: '鉄格子(通行不可)' },
   { cls: 'legend-fill key', text: '番号付きの部屋' },
   { cls: 'legend-fill info', text: '階段 / EV' },
 ]
 
 interface Props {
-  building: Building
+  /** 表示中の棟(both = 両方を並べる) */
+  view: WingView
+  onViewChange(view: WingView): void
+  /** 指示を送る相手の棟 */
+  target: WingId
+  onTargetChange(target: WingId): void
   /** 表示中のタブかどうか(非表示中は 3D の描画を止める) */
   active: boolean
   stairType: StairType
   onStairTypeChange(type: StairType): void
-  /** シミュレーションの仲間 */
-  ally: AllyView
+  /** 表示している棟の仲間(左から順) */
+  allies: AllyView[]
   onSend(text: string): void
   onResetAlly(): void
   onReplay(): void
   onLoadDemo(): void
 }
 
-export function MapScreen({ building, active, stairType, onStairTypeChange, ally, onSend, onResetAlly, onReplay, onLoadDemo }: Props) {
+const VIEWS: { id: WingView; label: string }[] = [
+  { id: 'west', label: WINGS.west.label },
+  { id: 'east', label: WINGS.east.label },
+  { id: 'both', label: 'BOTH' },
+]
+
+export function MapScreen({ view, onViewChange, target, onTargetChange, active, stairType, onStairTypeChange, allies, onSend, onResetAlly, onReplay, onLoadDemo }: Props) {
+  const buildings = BUILDINGS_IN[view]
+  // 階のボタンは最初の棟の階で作る(どの棟も同じ階の並び)
+  const building = buildings[0]
   // 階ごとの表示 ON/OFF。?floor=2F,3F のように URL で初期表示の階を指定できる(確認用)
   const [shownFloors, setShownFloors] = useState<boolean[]>(() => {
     const ids = new URLSearchParams(location.search).get('floor')?.split(',')
@@ -52,13 +68,15 @@ export function MapScreen({ building, active, stairType, onStairTypeChange, ally
   const [showTrail, setShowTrail] = useState(true)
 
   const shown = building.floors.filter((_, i) => shownFloors[i])
-  const zombieCount = shown.reduce((n, f) => n + f.markers.filter((m) => m.kind === 'zombie').length, 0)
+  /** 表示している棟すべての、表示している階 */
+  const shownAll = buildings.flatMap((b) => b.floors.filter((_, i) => shownFloors[i]))
+  const zombieCount = shownAll.reduce((n, f) => n + f.markers.filter((m) => m.kind === 'zombie').length, 0)
 
   return (
     <div className="screen layout layout--map">
       <header className="screen-header">
         <div className="map-title">
-          <span className="map-title-main">{building.name}</span>
+          <span className="map-title-main">{buildings.map((b) => b.name).join(' + ')}</span>
           <span className="map-title-sub">// 3D FACILITY MAP</span>
         </div>
       </header>
@@ -66,14 +84,15 @@ export function MapScreen({ building, active, stairType, onStairTypeChange, ally
       <div className="layout-main map-main">
         <div className="map-viewport hud-frame">
           <MapView
-            building={building}
+            buildings={buildings}
             shownFloors={shownFloors}
             autoRotate={autoRotate}
             resetKey={resetKey}
             exploded={exploded}
             stairType={stairType}
             paused={!active}
-            ally={ally}
+            allies={allies}
+            followAlly={WINGS_IN[view].indexOf(target)}
             showTrail={showTrail}
             // 1つの階だけ表示しているときに仲間が別の階へ移ったら、その階に切り替える
             onAllyFloorChange={(f) =>
@@ -95,6 +114,25 @@ export function MapScreen({ building, active, stairType, onStairTypeChange, ally
       </div>
 
       <aside className="map-panel">
+        <div className="panel-heading">WING</div>
+        <div className="floor-buttons floor-buttons--wing">
+          {VIEWS.map((v) => (
+            <button key={v.id} className={`floor-btn floor-btn--wing ${view === v.id ? 'is-active' : ''}`} onClick={() => onViewChange(v.id)}>
+              {v.label}
+            </button>
+          ))}
+        </div>
+        {view === 'both' && (
+          <div className="target-buttons">
+            <span>ORDERS TO</span>
+            {WINGS_IN.both.map((id) => (
+              <button key={id} className={`panel-btn ${target === id ? 'is-active' : ''}`} onClick={() => onTargetChange(id)}>
+                {WINGS[id].label}
+              </button>
+            ))}
+          </div>
+        )}
+
         <div className="panel-heading">FLOORS (ON / OFF)</div>
         <div className="floor-buttons">
           {[...building.floors.keys()].reverse().map((i) => (
@@ -128,7 +166,7 @@ export function MapScreen({ building, active, stairType, onStairTypeChange, ally
             )}
           </dd>
           <dt>ROOMS</dt>
-          <dd>{shown.reduce((n, f) => n + f.rooms.length, 0)}</dd>
+          <dd>{shownAll.reduce((n, f) => n + f.rooms.length, 0)}</dd>
           <dt>HOSTILES</dt>
           <dd className="danger">{zombieCount}</dd>
         </dl>

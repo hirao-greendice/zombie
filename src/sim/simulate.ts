@@ -1,5 +1,5 @@
 import type { StairType } from '../map/types'
-import { DIRS, inStairs, stepResult, type Cell, type Dir, type Nav } from './nav'
+import { DIRS, inStairs, splitArrival, stepResult, type Cell, type Dir, type Nav } from './nav'
 import { parseOrders } from './orders'
 
 /** 仲間の今いる場所 */
@@ -53,9 +53,11 @@ export function runOrders(state: SimState, text: string, nav: Nav, stairType: St
   /** 階段を上りきった地点(階段室の中、高さ rise = 1) */
   const stairTop = (f: number): Waypoint => {
     const s = nav.floors[f].stairs!
-    const arrivalAbove = nav.floors[f + 1]?.arrival[stairType]
-    if (arrivalAbove) return center(f, arrivalAbove, 1)
-    // 最上階: 上の階が無いので、階段の形から上りきる場所を決める
+    // 上の階の降り口が階段室の奥にあれば、そこへ直接上りきる
+    const above = nav.floors[f + 1]
+    const split = above && splitArrival(above, stairType)
+    if (split) return center(f, split, 1)
+    // それ以外は階段の形から決める: 直階段 = 奥の端 / U 字 = 入口の隣の列
     const [x0, y0, x1, y1] = s.rect
     const nearTop = s.entry.y - y0 <= y1 - 1 - s.entry.y
     if (stairType === 'straight') return { floor: f, x: (x0 + x1) / 2, y: nearTop ? y1 - 0.5 : y0 + 0.5, rise: 1 }
@@ -110,7 +112,7 @@ export function runOrders(state: SimState, text: string, nav: Nav, stairType: St
       const nf = nav.floors[pos.floor]
       if (pos.roof) replies.push('もう屋上だ')
       else if (!inStairs(nf.stairs, pos)) replies.push('近くに階段がない。階段室まで誘導してくれ')
-      else if (stairType === 'straight' && nf.arrival.straight?.y === pos.y) {
+      else if (splitArrival(nf, stairType)?.y === pos.y) {
         replies.push('ここは上ってきた階段の降り口だ。上りの階段には扉側から入る必要がある')
       } else {
         const s = nf.stairs!
