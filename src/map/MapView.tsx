@@ -538,6 +538,7 @@ export function MapView({
     return () => {
       cancelAnimationFrame(raf)
       observer.disconnect()
+      window.removeEventListener('resize', resize)
       controls.dispose()
       composer.dispose()
       renderer.dispose()
