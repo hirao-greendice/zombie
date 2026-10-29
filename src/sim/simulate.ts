@@ -38,12 +38,14 @@ export function initialSim(nav: Nav, start?: { floor: number; at: [number, numbe
 
 /**
  * 指示を実行して、新しい位置・3D で通る点・仲間からの返事を返す。
- * 状態は書き換えずに新しいものを返す
+ * 状態は書き換えずに新しいものを返す。
+ * strict = true のときは、指示どおりに動けなかった(壁・ゾンビ・階段が無い)ところで止まり、残りの指示は実行しない。
+ * done = 最後までやりとげた指示の数 / halted = 途中で止まった
  */
-export function runOrders(state: SimState, text: string, nav: Nav, stairType: StairType) {
+export function runOrders(state: SimState, text: string, nav: Nav, stairType: StairType, strict = false) {
   const orders = parseOrders(text)
   if (orders.length === 0) {
-    return { state, route: [] as Waypoint[], reply: '指示がわからない。方向(⬆️⬇️⬅️➡️)か「上る」「降りる」で頼む' }
+    return { state, route: [] as Waypoint[], reply: '指示がわからない。方向(⬆️⬇️⬅️➡️)か「上る」「降りる」で頼む', done: 0, halted: false }
   }
 
   let { pos, last } = state
@@ -72,9 +74,13 @@ export function runOrders(state: SimState, text: string, nav: Nav, stairType: St
     return { floor: f, x: (x0 + x1) / 2, y: nearTop ? y1 - 0.5 : y0 + 0.5, rise: 0.5 }
   }
 
-  const move = (dir: Dir, count: number | null) => {
+  /** 指示どおりに動けたら true(数の指定が無いときは、壁まで進めば true) */
+  const move = (dir: Dir, count: number | null): boolean => {
     const { dx, dy, name } = DIRS[dir]
-    if (pos.roof) return replies.push('ここは屋上だ。これ以上は動けない')
+    if (pos.roof) {
+      replies.push('ここは屋上だ。これ以上は動けない')
+      return false
+    }
     const nf = nav.floors[pos.floor]
     let cell: Cell = { x: pos.x, y: pos.y }
     let moved = 0
@@ -100,15 +106,22 @@ export function runOrders(state: SimState, text: string, nav: Nav, stairType: St
     } else {
       replies.push(`${name}へ${moved}マス進んだ`)
     }
+    return stop !== 'zombie' && (count === null || moved === count)
   }
 
-  for (const order of orders) {
-    if (order.kind === 'move') move(order.dir, order.count)
-    else if (order.kind === 'back') {
-      if (last) move(DIRS[last.dir].opposite, last.count)
-      else replies.push('戻る場所がない')
-    } else if (order.kind === 'wait') replies.push('了解、ここで待機する')
-    else if (order.kind === 'up') {
+  /** 1つの指示を実行する。指示どおりに動けたら true */
+  const exec = (order: (typeof orders)[number]): boolean => {
+    if (order.kind === 'move') return move(order.dir, order.count)
+    if (order.kind === 'back') {
+      if (last) return move(DIRS[last.dir].opposite, last.count)
+      replies.push('戻る場所がない')
+      return false
+    }
+    if (order.kind === 'wait') {
+      replies.push('了解、ここで待機する')
+      return true
+    }
+    if (order.kind === 'up') {
       const nf = nav.floors[pos.floor]
       if (pos.roof) replies.push('もう屋上だ')
       else if (!inStairs(nf.stairs, pos)) replies.push('近くに階段がない。階段室まで誘導してくれ')
@@ -132,29 +145,45 @@ export function runOrders(state: SimState, text: string, nav: Nav, stairType: St
           replies.push('屋上に出た!')
         }
         last = null
+        return true
       }
-    } else if (order.kind === 'down') {
-      const nf = nav.floors[pos.floor]
-      if (pos.roof) {
-        const s = nf.stairs!
-        route.push(center(pos.floor, s.entry))
-        pos = { floor: pos.floor, ...s.entry }
-        replies.push(`屋上から${nf.id}に降りた`)
-      } else if (pos.floor === 0) replies.push('これより下の階はない')
-      else if (!inStairs(nf.stairs, pos)) replies.push('近くに階段がない。階段室まで誘導してくれ')
-      else {
-        const below = pos.floor - 1
-        const s = nav.floors[below].stairs!
-        route.push(stairTop(below))
-        const l = landing(below)
-        if (l) route.push(l)
-        route.push(center(below, s.entry))
-        pos = { floor: below, ...s.entry }
-        replies.push(`階段を降りた。${nav.floors[below].id}に着いた`)
-      }
-      last = null
+      return false
     }
+    // 降りる
+    const nf = nav.floors[pos.floor]
+    last = null
+    if (pos.roof) {
+      const s = nf.stairs!
+      route.push(center(pos.floor, s.entry))
+      pos = { floor: pos.floor, ...s.entry }
+      replies.push(`屋上から${nf.id}に降りた`)
+      return true
+    }
+    if (pos.floor === 0) replies.push('これより下の階はない')
+    else if (!inStairs(nf.stairs, pos)) replies.push('近くに階段がない。階段室まで誘導してくれ')
+    else {
+      const below = pos.floor - 1
+      const s = nav.floors[below].stairs!
+      route.push(stairTop(below))
+      const l = landing(below)
+      if (l) route.push(l)
+      route.push(center(below, s.entry))
+      pos = { floor: below, ...s.entry }
+      replies.push(`階段を降りた。${nav.floors[below].id}に着いた`)
+      return true
+    }
+    return false
   }
 
-  return { state: { pos, last }, route, reply: replies.join(' → ') }
+  let done = 0
+  let halted = false
+  for (const order of orders) {
+    if (!exec(order) && strict) {
+      halted = true
+      break
+    }
+    done++
+  }
+
+  return { state: { pos, last }, route, reply: replies.join(' → '), done, halted }
 }

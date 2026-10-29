@@ -11,6 +11,7 @@ import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeome
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js'
 import { buildFloor, COLORS, FLOOR_GAP, WALL_HEIGHT, type FloorHandle } from './buildFloor'
 import { buildAlly } from './ally'
+import { WING_GAP } from './wings'
 import { floorColor } from './floorColors'
 import type { Building, StairType } from './types'
 import type { AllyView } from '../sim/useSim'
@@ -36,7 +37,19 @@ interface Props {
   onAllyFloorChange?(floor: number): void
   /** 仲間の通った道を矢印付きの線で描く */
   showTrail?: boolean
+  /** true: 真上から見下ろし、壁を床へ沈めて平面図の形に変形する(FLAT_SECONDS かけて) */
+  flat?: boolean
+  /** 平面で線を描く階 */
+  flatFloor?: number
+  /**
+   * 平面にしたときに合わせる位置と大きさ(この上に重ねる平面図と同じにすると、つなぎ目なく入れ替わる)。
+   * cx, cy = 表示エリアの中心から、棟全体の中心までのずれ(px) / scale = 1マスの大きさ(px)
+   */
+  flatFrame?: () => { cx: number; cy: number; scale: number } | null
 }
+
+/** 立体 ⇄ 平面の変形にかける時間(秒) */
+export const FLAT_SECONDS = 0.9
 
 /** 表示している階より上の、消している階を持ち上げる量 */
 const LIFT = 5
@@ -47,8 +60,6 @@ const WALK_SPEED = 3
 const REPLAY_SPEED = 2
 /** 軌跡の矢印(>)を置く間隔 */
 const CHEVRON_STEP = 1.2
-/** 棟を並べるときのすき間(マス) */
-const WING_GAP = 3
 
 type Waypoint = AllyView['route'][number]
 
@@ -65,11 +76,14 @@ export function MapView({
   followAlly = 0,
   onAllyFloorChange,
   showTrail = true,
+  flat = false,
+  flatFloor = 0,
+  flatFrame,
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null)
   // 描画ループから最新の props を読むための参照
-  const state = useRef({ shownFloors, autoRotate, resetKey, exploded, stairType, paused, allies, followAlly, onAllyFloorChange, showTrail })
-  state.current = { shownFloors, autoRotate, resetKey, exploded, stairType, paused, allies, followAlly, onAllyFloorChange, showTrail }
+  const state = useRef({ shownFloors, autoRotate, resetKey, exploded, stairType, paused, allies, followAlly, onAllyFloorChange, showTrail, flat, flatFloor, flatFrame })
+  state.current = { shownFloors, autoRotate, resetKey, exploded, stairType, paused, allies, followAlly, onAllyFloorChange, showTrail, flat, flatFloor, flatFrame }
 
   useEffect(() => {
     const host = hostRef.current!
@@ -214,8 +228,10 @@ export function MapView({
       return idx.length ? [idx[0], idx[idx.length - 1]] : [0, floorCount - 1]
     }
     // 消している階は完全に見えなくする。表示している階より上なら、持ち上げながら消す
-    const visibilityGoal = (i: number): number => (shown(i) ? 1 : 0)
-    const liftGoal = (i: number) => i * gap + (!shown(i) && i > shownRange()[1] ? LIFT : 0)
+    // 平面にするときは、表示している階を全部同じ高さに重ねる
+    const visibilityGoal = (i: number): number =>
+      shown(i) ? 1 : 0
+    const liftGoal = (i: number) => (state.current.flat ? 0 : i * gap + (!shown(i) && i > shownRange()[1] ? LIFT : 0))
     // 初回は補間せず、いきなり目標の状態で表示する
     const visibility = [...Array(floorCount).keys()].map(visibilityGoal)
     /** 階ごとの床の高さ(どの棟も同じ) */
@@ -395,6 +411,26 @@ export function MapView({
     controls.target.copy(goalTarget)
     camera.position.copy(goalTarget).addScaledVector(VIEW_DIR, goalDistance)
 
+    // --- 立体 ⇄ 平面の変形 ---
+    // flatT: 0 = 立体 / 1 = 平面。変形を始めたときのカメラ(球座標)を覚えておき、真上へ回り込む
+    let flatT = flat ? 1 : 0
+    let orbitSnap: { target: THREE.Vector3; sph: THREE.Spherical } | null = null
+    const takeSnap = () => {
+      const sph = new THREE.Spherical().setFromVector3(camera.position.clone().sub(controls.target))
+      // 真上(北が上)へは近い向きから回る
+      sph.theta = Math.atan2(Math.sin(sph.theta), Math.cos(sph.theta))
+      orbitSnap = { target: controls.target.clone(), sph }
+    }
+    /** 平面にしたときの、真上からの距離と注視点のずれ。flatFrame があればそれに合わせ、なければ棟全体がちょうど収まるように */
+    const flatView = () => {
+      const tan = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))
+      const frame = state.current.flatFrame?.()
+      if (!frame) return { distance: Math.max((D + 2) / (2 * tan), (totalW + 2) / (2 * tan * camera.aspect)), dx: 0, dz: 0 }
+      // 真上から見下ろすと、距離 r の床で 1マス = (height / 2) / (r * tan) px
+      return { distance: height / 2 / (frame.scale * tan), dx: -frame.cx / frame.scale, dz: -frame.cy / frame.scale }
+    }
+    const ease = (x: number) => x * x * x * (x * (x * 6 - 15) + 10)
+
     const clock = new THREE.Clock()
     let raf = 0
     const loop = () => {
@@ -420,12 +456,39 @@ export function MapView({
         lastExploded = ex
         zoomUntil = t + 1.5
       }
-      controls.target.lerp(goalTarget, k)
-      if (t < zoomUntil) offset.setLength(THREE.MathUtils.lerp(offset.length(), goalDistance, k))
-      camera.position.copy(controls.target).add(offset)
-
-      controls.autoRotate = ar
-      controls.update()
+      const flatGoal = state.current.flat ? 1 : 0
+      if (flatGoal === 1 && flatT === 0) takeSnap()
+      flatT = THREE.MathUtils.clamp(flatT + (flatGoal ? 1 : -1) * (dt / FLAT_SECONDS), 0, 1)
+      const e = ease(flatT)
+      if (flatT > 0) {
+        // 変形中・平面: カメラを真上へ回し込みながら、残す階の真ん中へ寄る
+        if (!orbitSnap) takeSnap()
+        const snap = orbitSnap!
+        const fv = flatView()
+        const target = snap.target.clone().lerp(new THREE.Vector3(fv.dx, floorY[state.current.flatFloor] ?? 0, fv.dz), e)
+        const sph = new THREE.Spherical(
+          THREE.MathUtils.lerp(snap.sph.radius, fv.distance, e),
+          THREE.MathUtils.lerp(snap.sph.phi, 0.0001, e),
+          THREE.MathUtils.lerp(snap.sph.theta, 0, e),
+        )
+        controls.enabled = false
+        controls.target.copy(target)
+        camera.position.setFromSpherical(sph).add(target)
+        camera.lookAt(target)
+      } else {
+        if (orbitSnap) {
+          // 立体に戻りきったら、元の視点から操作を再開
+          controls.target.copy(orbitSnap.target)
+          camera.position.setFromSpherical(orbitSnap.sph).add(orbitSnap.target)
+          orbitSnap = null
+          controls.enabled = true
+        }
+        controls.target.lerp(goalTarget, k)
+        if (t < zoomUntil) offset.setLength(THREE.MathUtils.lerp(offset.length(), goalDistance, k))
+        camera.position.copy(controls.target).add(offset)
+        controls.autoRotate = ar
+        controls.update()
+      }
 
       for (let i = 0; i < floorCount; i++) {
         visibility[i] = THREE.MathUtils.lerp(visibility[i], visibilityGoal(i), k)
@@ -436,6 +499,9 @@ export function MapView({
           f.setVisibility(visibility[i])
           f.setStairType(state.current.stairType)
           f.group.position.y = floorY[i]
+          // 平面にするときは、壁を床へ沈める
+          f.group.scale.y = 1 - 0.97 * e
+          f.setLineScale(1 + e)
           f.tick(t)
         })
       }
@@ -443,12 +509,15 @@ export function MapView({
       pillars.position.y = lo * gap
       pillars.scale.y = (hi - lo) * gap + WALL_HEIGHT
       const spread = (gap - WALL_HEIGHT) / (FLOOR_GAP - WALL_HEIGHT)
-      pillarMat.opacity = 0.35 * spread * (lo === hi ? 0 : 1)
+      pillarMat.opacity = 0.35 * spread * (lo === hi ? 0 : 1) * (1 - e)
 
       for (const r of allyRunners) r.tick(dt, t)
 
       // 複数の階: 外周が上下に走査 / 1つの階: 横一線が奥から手前へ走査
-      if (lo !== hi) {
+      if (flatT > 0) {
+        scanRing.visible = false
+        scanBar.visible = false
+      } else if (lo !== hi) {
         const p = (t * 0.25) % 1
         scanRing.visible = true
         scanBar.visible = false

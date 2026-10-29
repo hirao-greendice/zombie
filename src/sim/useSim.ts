@@ -28,10 +28,27 @@ function demoRun(nav: Nav, building: Building, stairType: StairType): { state: S
   return { state: result.state, trail: [pointOf(start.pos), ...result.route] }
 }
 
-/** 指示どおりに仲間がマップ上を動くシミュレーション。最初はデモの道順を歩き終えた状態 */
+/** 指示を実行した結果 */
+export interface ExecResult {
+  reply: string
+  /** 最後までやりとげた指示の数 */
+  done: number
+  /** strict で、途中で止まった */
+  halted: boolean
+  /** 今回通った点 */
+  route: Waypoint[]
+  /** 今回の route が軌跡(trail)の何番目から始まるか */
+  trailStart: number
+}
+
+/** 指示どおりに仲間がマップ上を動くシミュレーション。最初はスタート地点にいる(?demo を付けるとデモの道順を歩き終えた状態) */
 export function useSim(building: Building, stairType: StairType) {
   const nav = useMemo(() => buildNav(building), [building])
-  const initial = useMemo(() => demoRun(nav, building, stairType), [])
+  const initial = useMemo(() => {
+    if (new URLSearchParams(location.search).has('demo')) return demoRun(nav, building, stairType)
+    const start = initialSim(nav, building.allyStart)
+    return { state: start, trail: [pointOf(start.pos)] }
+  }, [])
   const state = useRef(initial.state)
   const [view, setView] = useState<AllyView>(() => ({
     pos: initial.state.pos,
@@ -41,11 +58,14 @@ export function useSim(building: Building, stairType: StairType) {
     trail: initial.trail,
     replayId: 0,
   }))
+  // exec を続けて呼んでも trailStart がずれないように、軌跡の長さを別に覚えておく
+  const trailLength = useRef(initial.trail.length)
 
   /** デモの道順を読み込む(仲間は終点に置き、軌跡を描く) */
   const loadDemo = (type: StairType = stairType) => {
     const demo = demoRun(nav, building, type)
     state.current = demo.state
+    trailLength.current = demo.trail.length
     setView((v) => ({ ...v, pos: demo.state.pos, route: [], routeId: v.routeId + 1, snap: true, trail: demo.trail }))
   }
 
@@ -59,10 +79,13 @@ export function useSim(building: Building, stairType: StairType) {
 
   return {
     view,
-    /** 指示を実行し、仲間の返事を返す */
-    exec(text: string) {
-      const result = runOrders(state.current, text, nav, stairType)
+    nav,
+    /** 指示を実行する。strict = 動けなかったところで止まり、残りは実行しない */
+    exec(text: string, strict = false): ExecResult {
+      const result = runOrders(state.current, text, nav, stairType, strict)
       state.current = result.state
+      const trailStart = trailLength.current
+      trailLength.current += result.route.length
       setView((v) => ({
         ...v,
         pos: result.state.pos,
@@ -71,11 +94,12 @@ export function useSim(building: Building, stairType: StairType) {
         snap: false,
         trail: [...v.trail, ...result.route],
       }))
-      return result.reply
+      return { reply: result.reply, done: result.done, halted: result.halted, route: result.route, trailStart }
     },
     /** 仲間をスタート地点に戻し、軌跡も消す */
     reset() {
       state.current = initialSim(nav, building.allyStart)
+      trailLength.current = 1
       setView((v) => ({
         ...v,
         pos: state.current.pos,

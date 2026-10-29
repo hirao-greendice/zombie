@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { COMMS_EMOJI, COMMS_STEPS } from '../comms/steps'
+import { COMMS_STEPS } from '../comms/steps'
 import type { Comms } from '../comms/useComms'
 
 const clock = (t: number) => new Date(t).toLocaleTimeString('ja-JP', { hour12: false })
@@ -7,16 +7,14 @@ const pad = (n: number) => String(n).padStart(2, '0')
 
 interface Props {
   comms: Comms
-  /** 指示を送る(仲間のシミュレーションも動かす) */
-  onSend(text: string): void
   /** 表示中のタブかどうか(表示中に見た通信だけ既読にする) */
   active: boolean
 }
 
-export function CommsScreen({ comms, onSend, active }: Props) {
+// 仲間への指示は MAP タブの平面図(線と爆弾)から送る。ここは受信とやりとりの記録だけ
+export function CommsScreen({ comms, active }: Props) {
   const [selected, setSelected] = useState(comms.unlocked)
   const [incoming, setIncoming] = useState(false)
-  const [draft, setDraft] = useState('')
   const logRef = useRef<HTMLDivElement>(null)
   const lastUnlocked = useRef(comms.unlocked)
 
@@ -40,11 +38,6 @@ export function CommsScreen({ comms, onSend, active }: Props) {
   useEffect(() => {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight })
   }, [comms.messages.length, active])
-
-  const send = () => {
-    onSend(draft)
-    setDraft('')
-  }
 
   const step = COMMS_STEPS[selected - 1]
 
@@ -108,28 +101,7 @@ export function CommsScreen({ comms, onSend, active }: Props) {
           ))}
         </div>
 
-        <div className="panel-heading">SEND ORDER</div>
-        <div className="comms-emoji">
-          {COMMS_EMOJI.map((e) => (
-            <button key={e} onClick={() => setDraft(draft + e)}>
-              {e}
-            </button>
-          ))}
-        </div>
-        <div className="comms-input">
-          <input
-            value={draft}
-            placeholder="指示を入力..."
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && !e.nativeEvent.isComposing && send()}
-          />
-          <button className="comms-clear" onClick={() => setDraft('')} disabled={!draft}>
-            ✕
-          </button>
-        </div>
-        <button className="comms-send" onClick={send} disabled={!draft.trim()}>
-          SEND ▶
-        </button>
+        <div className="comms-note">指示は MAP タブの平面図から送る(線で道順 / 爆弾はドラッグで配置)</div>
       </aside>
     </div>
   )

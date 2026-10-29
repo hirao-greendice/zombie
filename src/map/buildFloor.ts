@@ -60,6 +60,8 @@ export interface FloorHandle {
   tick(t: number): void
   /** 階段の形(と、それに合わせた到着地点)の表示を切り替える */
   setStairType(type: StairType): void
+  /** 線の太さを何倍にするか(平面にしたとき、真上から見ても壁が読めるように太くする) */
+  setLineScale(scale: number): void
   lineMaterials: LineMaterial[]
 }
 
@@ -72,6 +74,7 @@ export function buildFloor(floor: Floor, width: number, depth: number, color: nu
   const fades: { mat: { opacity: number }; base: number }[] = []
   const labels: HTMLElement[] = []
   const lineMaterials: LineMaterial[] = []
+  const baseWidths = new Map<LineMaterial, number>()
   const animated: ((t: number) => void)[] = []
 
   // 平面図 (x, y) → 3D (x, 高さ, z)。建物の中心を原点に
@@ -88,6 +91,7 @@ export function buildFloor(floor: Floor, width: number, depth: number, color: nu
     geo.setPositions(segs.flat(2))
     const mat = new LineMaterial({ color, linewidth, transparent: true, depthWrite: false })
     lineMaterials.push(mat)
+    baseWidths.set(mat, linewidth)
     const obj = new LineSegments2(geo, fade(mat, opacity))
     parent.add(obj)
     return obj
@@ -337,6 +341,9 @@ export function buildFloor(floor: Floor, width: number, depth: number, color: nu
     },
     tick(t) {
       for (const fn of animated) fn(t)
+    },
+    setLineScale(scale) {
+      for (const [mat, w] of baseWidths) mat.linewidth = w * scale
     },
     setStairType(type) {
       for (const [k, objs] of Object.entries(byStairType)) for (const o of objs) o.visible = k === type

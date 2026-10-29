@@ -22,5 +22,3 @@ export const COMMS_STEPS: CommsStep[] = [
   { title: 'TRANSMISSION 07', video: 'comms/step07.mp4' },
 ]
 
-/** こちらから送れる絵文字 */
-export const COMMS_EMOJI = ['⬆️', '⬇️', '⬅️', '➡️', '🛑', '🏃', '🤫', '✋', '🔑', '🚪', '🧟', '⚠️', '✅', '❌', '❓', '👍']

@@ -24,3 +24,6 @@ export const WINGS_IN: Record<WingView, WingId[]> = {
 export const BUILDINGS_IN = Object.fromEntries(
   Object.entries(WINGS_IN).map(([view, ids]) => [view, ids.map((id) => WINGS[id].building)]),
 ) as Record<WingView, Building[]>
+
+/** 棟を並べるときのすき間(マス)。3D と、平面に変形したときに重ねる描画レイヤーで同じにする */
+export const WING_GAP = 3
