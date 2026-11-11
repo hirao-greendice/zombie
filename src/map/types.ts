@@ -14,6 +14,10 @@ export interface Room {
 export interface Door {
   a: Pt
   b: Pt
+  /** 開き戸: 吊り元(a か b)と、開ききったときの戸先。無ければ扉の無い開口 */
+  swing?: { hinge: Pt; open: Pt }
+  /** 引き戸 */
+  slide?: boolean
 }
 
 /**

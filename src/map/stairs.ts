@@ -4,10 +4,33 @@ import type { Door, Room } from './types'
 export type PlanVec = [x: number, y: number, h: number]
 
 const STEPS = 12
-/** 手すりの高さ(rise に対する割合) */
-const RAIL_RATIO = 0.25
 /** 扉側に残す平らな床の奥行き */
 const LANDING = 1
+
+type Seg = (a: [number, number, number], b: [number, number, number]) => void
+
+/**
+ * 1本の階段(幅 ua〜ub、v を va → vb へ、高さ ha → hb まで steps 段)。
+ * 裏側も上面を1段ぶん奥・下へずらした段々にして、裏返しても上れる見た目にする
+ */
+function steppedFlight(seg: Seg, ua: number, ub: number, va: number, vb: number, ha: number, hb: number, steps: number) {
+  const v = (k: number) => va + ((vb - va) * k) / steps
+  const h = (k: number) => ha + ((hb - ha) * k) / steps
+  for (const u of [ua, ub]) {
+    for (let k = 0; k < steps; k++) {
+      seg([u, v(k), h(k)], [u, v(k), h(k + 1)]) // 蹴上げ
+      seg([u, v(k), h(k + 1)], [u, v(k + 1), h(k + 1)]) // 踏み面
+      if (k > 0) seg([u, v(k + 1), h(k - 1)], [u, v(k + 1), h(k)]) // 裏の蹴上げ
+      if (k + 2 <= steps) seg([u, v(k + 1), h(k)], [u, v(k + 2), h(k)]) // 裏の踏み面
+    }
+    seg([u, va, ha], [u, v(1), ha]) // 上り始めの底
+    seg([u, vb, h(steps - 1)], [u, vb, hb]) // 上りきった端
+  }
+  for (let k = 0; k < steps; k++) {
+    seg([ua, v(k), h(k + 1)], [ub, v(k), h(k + 1)]) // 段鼻
+    if (k + 1 < steps) seg([ua, v(k + 1), h(k)], [ub, v(k + 1), h(k)]) // 裏の段鼻
+  }
+}
 
 /**
  * 階段室の中に直階段(一直線に上る階段)の線分を作る。
@@ -35,25 +58,8 @@ export function straightStairs(room: Room, doors: Door[], rise: number): [PlanVe
   const segs: [PlanVec, PlanVec][] = []
   const seg = (a: [number, number, number], b: [number, number, number]) => segs.push([toPlan(...a), toPlan(...b)])
 
-  const v = (k: number) => va + ((vb - va) * k) / STEPS
-  const h = (k: number) => (rise * k) / STEPS
-  for (const u of [uMin, uMax]) {
-    for (let k = 0; k < STEPS; k++) {
-      seg([u, v(k), h(k)], [u, v(k), h(k + 1)]) // 蹴上げ
-      seg([u, v(k), h(k + 1)], [u, v(k + 1), h(k + 1)]) // 踏み面
-    }
-    seg([u, va, 0], [u, vb, rise - rise / STEPS]) // 側桁
-    seg([u, vb, 0], [u, vb, rise]) // 上り口の縦線
-  }
-  for (let k = 0; k < STEPS; k++) seg([uMin, v(k), h(k + 1)], [uMax, v(k), h(k + 1)]) // 段鼻
+  steppedFlight(seg, uMin, uMax, va, vb, 0, rise, STEPS)
   seg([uMin, vb, rise], [uMax, vb, rise])
-
-  // 手すり(両側)
-  const rail = rise * RAIL_RATIO
-  for (const u of [uMin, uMax]) {
-    seg([u, va, rail], [u, vb, rise + rail])
-    seg([u, va, 0], [u, va, rail])
-  }
 
   return segs
 }
@@ -89,27 +95,12 @@ export function uTurnStairs(room: Room, doors: Door[], rise: number): [PlanVec, 
   const vEnd = dir === 1 ? vMax : vMin
   const flightNear = (dir === 1 ? vMin : vMax) + dir * LANDING
   const flightFar = vEnd - dir * LANDING
-  const rail = rise * RAIL_RATIO
 
   const segs: [PlanVec, PlanVec][] = []
   const seg = (a: [number, number, number], b: [number, number, number]) => segs.push([toPlan(...a), toPlan(...b)])
 
-  const flight = ([ua, ub]: [number, number], va: number, vb: number, ha: number, hb: number) => {
-    const steps = STEPS / 2
-    const v = (k: number) => va + ((vb - va) * k) / steps
-    const h = (k: number) => ha + ((hb - ha) * k) / steps
-    for (const u of [ua, ub]) {
-      for (let k = 0; k < steps; k++) {
-        seg([u, v(k), h(k)], [u, v(k), h(k + 1)]) // 蹴上げ
-        seg([u, v(k), h(k + 1)], [u, v(k + 1), h(k + 1)]) // 踏み面
-      }
-      seg([u, va, ha], [u, vb, hb - (hb - ha) / steps]) // 側桁
-    }
-    for (let k = 0; k < steps; k++) seg([ua, v(k), h(k + 1)], [ub, v(k), h(k + 1)]) // 段鼻
-    // 手すり(2列の間)
-    seg([uMid, va, ha + rail], [uMid, vb, hb + rail])
-    seg([uMid, va, ha], [uMid, va, ha + rail])
-  }
+  const flight = ([ua, ub]: [number, number], va: number, vb: number, ha: number, hb: number) =>
+    steppedFlight(seg, ua, ub, va, vb, ha, hb, STEPS / 2)
 
   const half = rise / 2
   flight(firstLane, flightNear, flightFar, 0, half)

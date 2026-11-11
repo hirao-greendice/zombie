@@ -2,7 +2,14 @@ import { useEffect, useState } from 'react'
 import type { Comms } from '../comms/useComms'
 
 /** スタッフ用の進行操作。G キー or 右上を3回タップで表示切替 */
-export function GmPanel({ comms, onResetAlly }: { comms: Comms; onResetAlly(): void }) {
+interface Props {
+  comms: Comms
+  onResetAlly(): void
+  onReplay(): void
+  onLoadDemo(): void
+}
+
+export function GmPanel({ comms, onResetAlly, onReplay, onLoadDemo }: Props) {
   const [visible, setVisible] = useState(false)
 
   useEffect(() => {
@@ -35,6 +42,8 @@ export function GmPanel({ comms, onResetAlly }: { comms: Comms; onResetAlly(): v
         <button onClick={comms.prev} disabled={comms.unlocked <= 1}>◀ PREV</button>
         <button onClick={comms.next} disabled={comms.unlocked >= comms.total}>NEXT ▶</button>
         <button onClick={onResetAlly}>ALLY ⟲</button>
+        <button onClick={onReplay}>REPLAY</button>
+        <button onClick={onLoadDemo}>DEMO</button>
         <button
           onClick={() => {
             if (!confirm('通信の進行・ログと仲間の位置を最初に戻しますか?')) return

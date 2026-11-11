@@ -1,8 +1,9 @@
-export type TabId = 'map' | 'comms'
+export type TabId = 'map' | 'comms' | 'hack'
 
-const TABS: { id: TabId; label: string }[] = [
-  { id: 'map', label: 'MAP' },
-  { id: 'comms', label: 'COMMS' },
+export const TABS: { id: TabId; label: string; sub: string }[] = [
+  { id: 'map', label: 'MAP', sub: 'マップ・指示' },
+  { id: 'comms', label: '通信履歴', sub: 'COMMS LOG' },
+  { id: 'hack', label: 'ハッキング', sub: 'HACKING' },
 ]
 
 interface Props {
@@ -18,6 +19,7 @@ export function TabBar({ tab, onChange, badges = {} }: Props) {
       {TABS.map((t) => (
         <button key={t.id} className={`tab-btn ${tab === t.id ? 'is-active' : ''}`} onClick={() => onChange(t.id)}>
           {t.label}
+          <small>{t.sub}</small>
           {badges[t.id] && <span className="tab-badge">NEW</span>}
         </button>
       ))}

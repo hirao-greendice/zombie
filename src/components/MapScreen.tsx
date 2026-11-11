@@ -1,5 +1,5 @@
 import { useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
-import { FLAT_SECONDS, MapView } from '../map/MapView'
+import { FLAT_SECONDS, MapView, TOWER_SECONDS, WING_SECONDS } from '../map/MapView'
 import type { StairType } from '../map/types'
 import { BUILDINGS_IN, WINGS, WINGS_IN, type WingId, type WingView } from '../map/wings'
 import type { Sim } from '../sim/useSim'
@@ -9,20 +9,6 @@ import { FlatOverlay, overlayCell, overlayFrame, type DropTarget } from '../plan
 import { BombIcon } from '../plan/BombIcon'
 import { draftSummary, emptyDraft, undoStroke, type Bomb } from '../plan/draft'
 import type { Plans } from '../plan/usePlans'
-
-// 平面図の印の意味が決まったらここを書き換える
-const LEGEND = [
-  { cls: 'legend-ally', text: '仲間' },
-  { cls: 'legend-route', text: '描いた道順(送信前)' },
-  { cls: 'legend-bomb', text: '爆弾(仲間が通ると設置)' },
-  { cls: 'legend-zombie', text: 'ゾンビ(通行不可)' },
-  { cls: 'legend-arrival', text: '到着地点(下の階から)' },
-  { cls: 'legend-gem neutral', text: '黒丸 / 青丸マーカー' },
-  { cls: 'legend-box danger', text: '赤四角マーカー' },
-  { cls: 'legend-bars', text: '鉄格子(通行不可)' },
-  { cls: 'legend-fill key', text: '番号付きの部屋' },
-  { cls: 'legend-fill info', text: '階段 / EV' },
-]
 
 interface Props {
   /** 表示中の棟(both = 両方を並べる) */
@@ -34,22 +20,22 @@ interface Props {
   /** 表示中のタブかどうか(非表示中は描画を止める) */
   active: boolean
   stairType: StairType
-  onStairTypeChange(type: StairType): void
   sims: Record<WingId, Sim>
   plans: Plans
   /** 描いた道順を送る */
   onSendPlan(): void
-  onReplay(): void
-  onLoadDemo(): void
 }
 
 const VIEWS: { id: WingView; label: string }[] = [
-  { id: 'west', label: WINGS.west.label },
-  { id: 'east', label: WINGS.east.label },
-  { id: 'both', label: 'BOTH' },
+  { id: 'west', label: '西棟' },
+  { id: 'east', label: '東棟' },
+  { id: 'both', label: '両方' },
 ]
 
 const params = new URLSearchParams(location.search)
+/** 3D には両方の棟をいつも置いておき、表示する棟だけ切り替える(作り直さないので、なめらかに切り替わる) */
+const ALL_WINGS = WINGS_IN.both
+const ALL_BUILDINGS = BUILDINGS_IN.both
 
 /** ドラッグ中の爆弾。from = 置いてある爆弾を動かしているとき */
 interface BombDrag {
@@ -60,7 +46,7 @@ interface BombDrag {
   over: DropTarget | null
 }
 
-export function MapScreen({ view, onViewChange, target, onTargetChange, active, stairType, onStairTypeChange, sims, plans, onSendPlan, onReplay, onLoadDemo }: Props) {
+export function MapScreen({ view, onViewChange, target, onTargetChange, active, stairType, sims, plans, onSendPlan }: Props) {
   const buildings = BUILDINGS_IN[view]
   const wingIds = WINGS_IN[view]
   // 階のボタンは最初の棟の階で作る(どの棟も同じ階の並び)
@@ -69,7 +55,9 @@ export function MapScreen({ view, onViewChange, target, onTargetChange, active, 
   const [shownFloors, setShownFloors] = useState<boolean[]>(() => {
     const ids = params.get('floor')?.split(',')
     const fromUrl = building.floors.map((f) => !!ids?.includes(f.id))
-    return fromUrl.some(Boolean) ? fromUrl : building.floors.map(() => true)
+    if (fromUrl.some(Boolean)) return fromUrl
+    // 平面から始めるときは 1F だけ
+    return building.floors.map((_, i) => params.get('view') !== 'plan' || i === 0)
   })
   /** 階の ON/OFF を切り替える(最後の1つは消せない)。立体でも平面でも同じ */
   const toggleFloor = (i: number) =>
@@ -86,11 +74,43 @@ export function MapScreen({ view, onViewChange, target, onTargetChange, active, 
   const setMode = (next: '2d' | '3d') => {
     if (next === mode) return
     setModeRaw(next)
+    // 平面に切り替えたときは、まず線を描く階だけにする(階のボタンで重ねられる)
+    if (next === '2d') setShownFloors((prev) => prev.map((_, j) => j === flatFloor))
     setMorphing(true)
     clearTimeout(morphTimer.current)
     morphTimer.current = window.setTimeout(() => setMorphing(false), FLAT_SECONDS * 1000)
   }
-  const canDraw = mode === '2d' && !morphing
+  /** 棟の切り替えの最中(平面では、描画レイヤーを隠して 3D が新しい位置へ寄るのを見せる) */
+  const [switching, setSwitching] = useState(false)
+  const switchTimer = useRef(0)
+  const changeView = (next: WingView) => {
+    if (next === view) return
+    onViewChange(next)
+    setSwitching(true)
+    clearTimeout(switchTimer.current)
+    switchTimer.current = window.setTimeout(() => setSwitching(false), WING_SECONDS * 1000)
+  }
+  const canDraw = mode === '2d' && !morphing && !switching
+
+  /** 本来の塔(東棟を回して西棟の上に載せる)。立体で見る。?tower で塔から始める */
+  const [tower, setTower] = useState(() => params.has('tower'))
+  const towerTimer = useRef(0)
+  const toggleTower = () => {
+    clearTimeout(towerTimer.current)
+    if (tower) return setTower(false)
+    // 塔は両方の棟・全部の階を立体で見る
+    setMode('3d')
+    changeView('both')
+    setShownFloors(building.floors.map(() => true))
+    setTower(true)
+  }
+  /** 平面へ: 塔なら、先に東棟を隣へ戻してから平面にする */
+  const toPlan = () => {
+    if (!tower) return setMode('2d')
+    setTower(false)
+    clearTimeout(towerTimer.current)
+    towerTimer.current = window.setTimeout(() => setMode('2d'), TOWER_SECONDS * 1000)
+  }
 
   /**
    * 平面で線を描く階。線の先(描いていなければ仲間)の階が表示されていればその階、なければ表示している一番上の階。
@@ -108,8 +128,8 @@ export function MapScreen({ view, onViewChange, target, onTargetChange, active, 
   const measureFlatFrame = () => (viewportRef.current ? overlayFrame(viewportRef.current) : null)
   const [autoRotate, setAutoRotate] = useState(true)
   const [resetKey, setResetKey] = useState(0)
+  /** true: 階を離して表示 / false: 実際の建物どおり重ねる。?stack で重ねた状態から始める */
   const [exploded, setExploded] = useState(() => params.get('stack') === null)
-  const [showTrail, setShowTrail] = useState(true)
 
   // --- 爆弾のドラッグ&ドロップ(指でもマウスでも動くように pointer イベントで自前で行う) ---
   const screenRef = useRef<HTMLDivElement>(null)
@@ -149,63 +169,39 @@ export function MapScreen({ view, onViewChange, target, onTargetChange, active, 
     window.addEventListener('pointercancel', end)
   }
 
-  const shownAll = buildings.flatMap((b) => b.floors.filter((_, i) => shownFloors[i]))
-  const shownIds = shownIdx.map((i) => building.floors[i].id)
-  const zombieCount = shownAll.reduce((n, f) => n + f.markers.filter((m) => m.kind === 'zombie').length, 0)
   const floorIds = { west: WINGS.west.building.floors.map((f) => f.id), east: WINGS.east.building.floors.map((f) => f.id) }
   const draftCells = wingIds.reduce((n, w) => n + draftSummary(plans.drafts[w].points, floorIds[w]).cells, 0)
-  const bombsOf = (w: WingId) => plans.bombs[w]
-  const planted = wingIds.reduce((n, w) => n + bombsOf(w).filter((b) => b.plantedAt !== null).length, 0)
-  const placed = wingIds.reduce((n, w) => n + bombsOf(w).length, 0)
 
   return (
     <div className="screen layout layout--map" ref={screenRef}>
-      <header className="screen-header">
-        <div className="map-title">
-          <span className="map-title-main">{buildings.map((b) => b.name).join(' + ')}</span>
-          <span className="map-title-sub">// {mode === '2d' ? 'FLOOR PLAN' : '3D FACILITY MAP'}</span>
-        </div>
-        <div className="view-switch" role="tablist">
-          <button className={mode === '2d' ? 'is-active' : ''} onClick={() => setMode('2d')}>
-            平面<small>PLAN</small>
-          </button>
-          <button className={mode === '3d' ? 'is-active' : ''} onClick={() => setMode('3d')}>
-            立体<small>3D</small>
-          </button>
-        </div>
-      </header>
-
       <div className="layout-main map-main">
         <div className="map-viewport hud-frame" ref={viewportRef}>
           <div className="map-3d">
             <MapView
-              buildings={buildings}
+              buildings={ALL_BUILDINGS}
+              shownWings={ALL_WINGS.map((w) => wingIds.includes(w))}
               shownFloors={shownFloors}
               autoRotate={autoRotate}
               resetKey={resetKey}
               exploded={exploded}
+              tower={tower}
               stairType={stairType}
               flat={mode === '2d'}
               flatFloor={flatFloor}
               flatFrame={measureFlatFrame}
               paused={!active}
-              allies={wingIds.map((id) => sims[id].view)}
-              followAlly={wingIds.indexOf(target)}
-              showTrail={showTrail}
+              allies={ALL_WINGS.map((id) => sims[id].view)}
+              followAlly={ALL_WINGS.indexOf(target)}
+              showTrail
               // 1つの階だけ表示しているときに仲間が別の階へ移ったら、その階に切り替える
               onAllyFloorChange={(f) =>
                 setShownFloors((prev) => (prev.filter(Boolean).length === 1 && !prev[f] ? prev.map((_, j) => j === f) : prev))
               }
             />
-            <div className="map-viewport-caption">
-              {mode === '2d'
-                ? `${allShown ? 'ALL FLOORS' : `FLOOR ${shownIds.join(' + ')}`}  /  線を描く階: ${building.floors[flatFloor]?.id}`
-                : `${allShown ? 'ALL FLOORS' : `FLOOR ${shownAll.map((f) => f.id).join(' + ')}`}  /  DRAG: ROTATE  /  PINCH: ZOOM`}
-            </div>
           </div>
           {/* 線・爆弾を描く透明なレイヤー。変形のあいだも見えない状態で置いておき、3D がこの位置・大きさに合わせて平面になる */}
           {mode === '2d' && (
-            <div className={`plan-layer ${canDraw ? '' : 'is-arriving'}`}>
+            <div className={`plan-layer ${switching ? 'is-switching' : canDraw ? '' : 'is-arriving'}`}>
               <FlatOverlay
                 wings={wingIds}
                 stairType={stairType}
@@ -223,6 +219,64 @@ export function MapScreen({ view, onViewChange, target, onTargetChange, active, 
             </div>
           )}
         </div>
+      </div>
+
+      <aside className="map-side">
+        <div className="seg seg--mode">
+          <button className={mode === '2d' ? 'is-active' : ''} onClick={toPlan}>
+            平面
+          </button>
+          <button className={mode === '3d' ? 'is-active' : ''} onClick={() => setMode('3d')}>
+            立体
+          </button>
+        </div>
+
+        <button className={`side-btn tower-btn ${tower ? 'is-active' : ''}`} onClick={toggleTower}>
+          {tower ? '塔から戻す' : '本来の塔'}
+        </button>
+
+        {/* 塔のあいだは、棟と階の切り替えはしない */}
+        <div className={`side-label ${tower ? 'is-off' : ''}`}>棟</div>
+        <div className={`seg ${tower ? 'is-off' : ''}`}>
+          {VIEWS.map((v) => (
+            <button key={v.id} className={view === v.id ? 'is-active' : ''} onClick={() => changeView(v.id)}>
+              {v.label}
+            </button>
+          ))}
+        </div>
+
+        <div className={`side-label ${tower ? 'is-off' : ''}`}>階</div>
+        <div className={`seg seg--floors ${tower ? 'is-off' : ''}`}>
+          {[...building.floors.keys()].map((i) => (
+            <button
+              key={i}
+              className={shownFloors[i] ? 'is-active' : ''}
+              style={{ '--floor-color': floorColorCss(i) } as CSSProperties}
+              onClick={() => toggleFloor(i)}
+            >
+              {building.floors[i].id}
+            </button>
+          ))}
+          <button className={allShown ? 'is-active' : ''} onClick={() => setShownFloors(building.floors.map(() => true))}>
+            全
+          </button>
+        </div>
+
+        {mode === '3d' && (
+          <div className="side-row">
+            {/* 塔はいつも重ねて表示するので、塔のあいだは切り替えない */}
+            <button className={`side-btn side-btn--wide ${!exploded ? 'is-active' : ''} ${tower ? 'is-off' : ''}`} onClick={() => setExploded(!exploded)}>
+              階を重ねる
+            </button>
+            <button className={`side-btn ${autoRotate ? 'is-active' : ''}`} onClick={() => setAutoRotate(!autoRotate)}>
+              自動回転
+            </button>
+            <button className="side-btn" onClick={() => setResetKey(resetKey + 1)}>
+              視点を戻す
+            </button>
+          </div>
+        )}
+
         <OrderBar
           planMode={canDraw}
           onBombDown={(e) => startBombDrag(e, null)}
@@ -231,95 +285,7 @@ export function MapScreen({ view, onViewChange, target, onTargetChange, active, 
           onUndo={() => plans.updateDraft(target, undoStroke)}
           onClear={() => wingIds.forEach((w) => plans.updateDraft(w, (d) => emptyDraft(d.points[0])))}
           onSend={onSendPlan}
-          onReplay={onReplay}
-          onResetAlly={() => wingIds.forEach((w) => plans.reset(w))}
-          onLoadDemo={onLoadDemo}
-          showTrail={showTrail}
-          onShowTrailChange={setShowTrail}
         />
-      </div>
-
-      <aside className="map-panel">
-        <div className="panel-heading">WING</div>
-        <div className="floor-buttons floor-buttons--wing">
-          {VIEWS.map((v) => (
-            <button key={v.id} className={`floor-btn floor-btn--wing ${view === v.id ? 'is-active' : ''}`} onClick={() => onViewChange(v.id)}>
-              {v.label}
-            </button>
-          ))}
-        </div>
-
-        <div className="panel-heading">FLOORS (ON / OFF)</div>
-        <div className="floor-buttons floor-buttons--floors">
-          {[...building.floors.keys()].map((i) => (
-            <button
-              key={i}
-              className={`floor-btn ${shownFloors[i] ? 'is-active' : ''}`}
-              style={{ '--floor-color': floorColorCss(i) } as CSSProperties}
-              onClick={() => toggleFloor(i)}
-            >
-              {building.floors[i].id}
-            </button>
-          ))}
-          <button
-            className={`floor-btn floor-btn--all ${allShown ? 'is-active' : ''}`}
-            onClick={() => setShownFloors(building.floors.map(() => true))}
-          >
-            ALL
-          </button>
-        </div>
-
-        <div className="panel-heading">STATUS</div>
-        <dl className="panel-stats">
-          {wingIds.map((w) => {
-            const pos = sims[w].view.pos
-            return [
-              <dt key={`${w}-t`}>{WINGS[w].label} ALLY</dt>,
-              <dd key={`${w}-d`} style={{ color: floorColorCss(pos.floor) }}>
-                {pos.roof ? 'ROOF' : WINGS[w].building.floors[pos.floor].id}
-              </dd>,
-            ]
-          })}
-          <dt>BOMBS SET</dt>
-          <dd className="warn">
-            {planted} / {placed}
-          </dd>
-          <dt>HOSTILES</dt>
-          <dd className="danger">{zombieCount}</dd>
-        </dl>
-
-        <div className="panel-heading">LEGEND</div>
-        <ul className="panel-legend">
-          {LEGEND.map((l) => (
-            <li key={l.text}>
-              <i className={l.cls} />
-              {l.text}
-            </li>
-          ))}
-        </ul>
-
-        <div className="panel-actions">
-          <button className="panel-btn" onClick={() => onStairTypeChange(stairType === 'straight' ? 'uturn' : 'straight')}>
-            <small>STAIRS</small>
-            {stairType === 'straight' ? 'STRAIGHT' : 'U-TURN'}
-          </button>
-          {mode === '3d' && (
-            <>
-              <button className={`panel-btn ${exploded ? '' : 'is-active'}`} onClick={() => setExploded(!exploded)}>
-                <small>FLOORS</small>
-                {exploded ? 'SPLIT' : 'STACKED'}
-              </button>
-              <button className={`panel-btn ${autoRotate ? 'is-active' : ''}`} onClick={() => setAutoRotate(!autoRotate)}>
-                <small>ROTATE</small>
-                {autoRotate ? 'AUTO' : 'OFF'}
-              </button>
-              <button className="panel-btn" onClick={() => setResetKey(resetKey + 1)}>
-                <small>VIEW</small>
-                RESET
-              </button>
-            </>
-          )}
-        </div>
       </aside>
 
       {drag && (

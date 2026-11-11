@@ -1,108 +1,123 @@
-import type { Building, Marker } from './types'
+import type { Building, Pt, Room } from './types'
 import { hd, rect, vd } from './plan'
 
 // 東棟の平面図(messageImage_*.jpg)を 10x15 マスのグリッドで読み取ったもの。
-// 扉の開いた戸板(弧の付け根の線)は壁として扱わない。route は赤い線の道順
+// 1F は新しい平面図(オレンジの線 = 扉、弧 = 開く向き)。扉の開いた戸板(弧の付け根の線)は壁として扱わない。route は赤い線の道順
 
-/** 縦一列に並んだ黒丸 */
-const dots = (x: number, ys: number[]): Marker[] => ys.map((y) => ({ kind: 'black', at: [x, y] }))
+/** 鉄格子の独房(扉なし) */
+const cells = (polys: Pt[][]): Room[] => polys.map((poly) => ({ kind: 'room', poly }))
 
 export const EAST_WING: Building = {
   name: 'EAST WING',
   width: 10,
   depth: 15,
-  // 1F 左下の赤い四角(入口)の内側
-  allyStart: { floor: 0, at: [0, 14] },
+  // 1F 南の外壁の開口(入口)の外
+  allyStart: { floor: 0, at: [1, 14] },
   floors: [
     {
+      // 1F は 10x14 マス。15 行目は建物の外
       id: '1F',
       rooms: [
-        { kind: 'stairs', poly: rect(0, 0, 2, 4), label: '階段' },
-        { kind: 'key', poly: rect(3, 0, 6, 4), label: '①' },
-        // 鉄格子の独房(黒丸の列)
-        { kind: 'room', poly: rect(6, 0, 7, 8) },
-        { kind: 'room', poly: rect(7, 0, 8, 8) },
-        { kind: 'room', poly: rect(9, 0, 10, 13) },
-        { kind: 'room', poly: rect(0, 5, 5, 8) },
-        { kind: 'room', poly: rect(1, 9, 5, 14) },
-        { kind: 'room', poly: rect(6, 9, 8, 12) },
-        { kind: 'ev', poly: rect(8, 13, 10, 15), label: 'EV' },
+        { kind: 'stairs', poly: rect(2, 0, 8, 1), label: '階段' },
+        ...cells([0, 2, 4, 6, 8, 10, 12].map((y) => rect(0, y, 1, y + 2))),
+        ...cells([rect(9, 0, 10, 3), rect(9, 3, 10, 6), rect(9, 6, 10, 9), rect(9, 9, 10, 11), rect(7, 2, 8, 8)]),
+        { kind: 'room', poly: rect(2, 2, 4, 6) },
+        { kind: 'room', poly: rect(4, 2, 6, 6) },
+        { kind: 'room', poly: rect(2, 6, 4, 11) },
+        { kind: 'room', poly: rect(5, 9, 8, 11) },
+        { kind: 'room', poly: rect(1, 12, 3, 14) },
+        { kind: 'room', poly: rect(4, 12, 6, 14) },
+        { kind: 'room', poly: rect(7, 12, 10, 14) },
       ],
+      walls: [[[0, 14], [10, 14]]], // 南の外壁
       doors: [
-        vd(2, 0), vd(3, 0), hd(4, 4), hd(5, 4),
-        hd(4, 5), hd(0, 8), hd(1, 9), vd(5, 12), hd(7, 9), vd(8, 14),
-        hd(0, 15), // 入口
+        hd(2, 1, 'wn'), vd(4, 4, 'nw'), vd(6, 5, 'se'), hd(3, 6, 'es'), vd(5, 9, 'nw'), hd(7, 9, 'wn'),
+        vd(4, 10, 'sw'), hd(1, 12, 'ws'), hd(4, 12, 'slide'), hd(5, 12, 'slide'), vd(7, 13, 'ne'),
+        hd(1, 14), // 入口(扉なし)
       ],
       bars: [
-        [[6, 0], [6, 8]],
-        [[8, 0], [8, 8]],
-        [[9, 0], [9, 13]],
+        [[1, 0], [1, 14]],
+        [[8, 2], [8, 8]],
+        [[9, 0], [9, 11]],
       ],
       markers: [
-        ...dots(6.5, [1.5, 3.5, 5.5, 7.5]),
-        ...dots(7.5, [0.5, 2.5, 4.5, 6.5]),
-        ...dots(9.5, [0.5, 2.5, 4.5, 6.5, 8.5, 10.5, 12.5]),
-        { kind: 'black', at: [1.5, 6.5] },
-        { kind: 'black', at: [3.5, 8.5] },
-        { kind: 'blue', at: [7.5, 8.5] },
-        { kind: 'red', at: [5.5, 4] },
-        { kind: 'red', at: [0.5, 15] },
+        { kind: 'zombie', at: [6.5, 1.5] },
+        { kind: 'zombie', at: [0.5, 3.5] },
+        { kind: 'zombie', at: [5.5, 3.5] },
+        { kind: 'zombie', at: [9.5, 3.5] },
+        { kind: 'zombie', at: [1.5, 6.5] },
+        { kind: 'zombie', at: [7.5, 6.5] },
+        { kind: 'zombie', at: [8.5, 8.5] },
+        { kind: 'zombie', at: [0.5, 13.5] },
       ],
-      // 入口から右へ回り込み、赤い四角の扉から①の部屋を抜けて階段へ
-      route: [[0, 14], [7, 14], [7, 12], [5, 12], [5, 0], [1, 0]],
     },
     {
+      // 2F も 10x14 マス。階段を上りきった R1 から扉で下へ出る
       id: '2F',
       rooms: [
-        { kind: 'stairs', poly: rect(0, 0, 2, 4), label: '階段' },
-        { kind: 'room', poly: [[2, 1], [5, 1], [5, 9], [3, 9], [3, 8], [2, 8]] },
-        { kind: 'key', poly: [[6, 0], [10, 0], [10, 4], [9, 4], [9, 8], [6, 8]], label: '②' },
-        { kind: 'key', poly: rect(1, 10, 3, 13), label: '①' },
-        { kind: 'room', poly: rect(3, 12, 7, 15) },
-        { kind: 'ev', poly: rect(8, 13, 10, 15), label: 'EV' },
+        { kind: 'stairs', poly: rect(2, 0, 8, 1), label: '階段' },
+        { kind: 'room', poly: [[0, 0], [1, 0], [1, 2], [4, 2], [4, 5], [0, 5]] },
+        { kind: 'room', poly: [[5, 2], [9, 2], [9, 0], [10, 0], [10, 5], [5, 5]] },
+        { kind: 'room', poly: [[1, 6], [6, 6], [6, 8], [4, 8], [4, 11], [1, 11]] },
+        { kind: 'room', poly: rect(7, 5, 10, 8) },
+        { kind: 'room', poly: rect(0, 12, 3, 14) },
+        { kind: 'room', poly: rect(4, 12, 6, 14) },
+      ],
+      walls: [
+        [[5, 9], [10, 9]], [[5, 9], [5, 11]], [[5, 11], [7, 11]], [[7, 11], [7, 14]],
+        [[0, 14], [10, 14]], // 南の外壁
       ],
       doors: [
-        vd(2, 0), hd(2, 1), vd(2, 7), hd(3, 9),
-        vd(6, 0), hd(9, 4), hd(8, 8),
-        hd(1, 10), hd(2, 13), hd(6, 12), vd(7, 14), vd(8, 14),
+        hd(2, 1, 'wn'), hd(7, 1, 'en'), // 階段の扉 / 上りきった R1 の扉
+        hd(2, 2, 'ws'), hd(8, 2, 'es'), hd(3, 5, 'en'), hd(6, 5, 'wn'), hd(3, 6, 'es'), vd(7, 6, 'sw'),
+        hd(8, 8, 'wn'), hd(8, 9, 'es'), vd(4, 10, 'sw'), vd(7, 11, 'ne'), hd(2, 12, 'en'),
+        hd(4, 12, 'slide'), hd(5, 12, 'slide'),
       ],
       markers: [
-        { kind: 'black', at: [7.5, 0.5] },
-        { kind: 'arrival', at: [1.5, 0.5], label: '▲ FROM 1F' },
+        { kind: 'arrival', at: [7.5, 0.5], label: '▲ FROM 1F' },
+        { kind: 'zombie', at: [4.5, 2.5] },
+        { kind: 'zombie', at: [8.5, 4.5] },
+        { kind: 'zombie', at: [5.5, 8.5] },
+        { kind: 'zombie', at: [0.5, 9.5] },
       ],
-      // 西側を下って①、右側から②を回って階段へ戻る
+      // 青: 上ってきた R1 から右側を下って S11 へ / 紫: S12 から左へ回り込み、M1 の階段へ
       route: [
-        [2, 0], [2, 7], [1, 7], [1, 4], [0, 4], [0, 14], [2, 14], [2, 12], [1, 12], [1, 9],
-        [9, 9], [9, 3], [6, 3], [6, 7], [8, 7], [8, 8], [5, 8], [5, 0], [1, 0],
+        [7, 0], [7, 1], [8, 1], [8, 2], [6, 2], [6, 6], [8, 6], [8, 10],
+        [8, 11], [4, 11], [4, 10], [3, 10], [3, 4], [2, 4], [2, 0],
       ],
     },
     {
+      // 3F も 10x14 マス。2F から上ってくると R1 に着く。階段の両端は扉のない開口
       id: '3F',
       rooms: [
-        { kind: 'stairs', poly: rect(0, 0, 2, 4), label: '階段' },
-        { kind: 'room', poly: rect(3, 1, 5, 8) },
-        // 鉄格子の独房
-        { kind: 'room', poly: rect(6, 0, 7, 8) },
-        { kind: 'key', poly: rect(7, 4, 9, 8), label: '①' },
-        { kind: 'room', poly: rect(0, 5, 2, 9) },
-        { kind: 'room', poly: rect(6, 9, 8, 11) },
-        { kind: 'room', poly: [[0, 10], [2, 10], [2, 12], [7, 12], [7, 14], [0, 14]] },
-        { kind: 'ev', poly: rect(8, 13, 10, 15), label: 'EV' },
+        { kind: 'stairs', poly: rect(2, 0, 8, 1), label: '階段' },
+        { kind: 'room', poly: [[0, 0], [1, 0], [1, 2], [4, 2], [4, 8], [0, 8]] },
+        { kind: 'room', poly: rect(5, 2, 8, 5) },
+        ...cells([rect(9, 0, 10, 5)]),
+        { kind: 'room', poly: rect(5, 6, 10, 8) },
+        { kind: 'room', poly: [[0, 8], [2, 8], [2, 11], [3, 11], [3, 14], [0, 14]] },
+        { kind: 'room', poly: [[3, 9], [6, 9], [6, 11], [4, 11], [4, 10], [3, 10]] },
+        { kind: 'room', poly: rect(7, 8, 10, 11) },
+        { kind: 'room', poly: rect(7, 12, 10, 14) },
+        { kind: 'room', poly: rect(4, 12, 6, 14) },
       ],
+      walls: [[[0, 14], [10, 14]]], // 南の外壁
       doors: [
-        vd(2, 0), vd(3, 4), vd(7, 1), hd(7, 4), hd(8, 8),
-        vd(2, 8), hd(7, 11), hd(2, 12), hd(6, 14), vd(8, 14),
+        hd(2, 1), hd(7, 1),
+        vd(9, 2), // 鉄格子の扉
+        vd(8, 2, 'sw'), vd(4, 5, 'nw'), hd(6, 5, 'wn'), hd(6, 6, 'ws'), hd(0, 8, 'ws'), hd(8, 8, 'ws'),
+        hd(4, 9, 'es'), vd(3, 11, 'sw'), hd(9, 11, 'wn'), hd(8, 12, 'ws'), hd(4, 12, 'slide'), hd(5, 12, 'slide'),
       ],
-      bars: [[[6, 0], [6, 8]]],
+      bars: [[[9, 0], [9, 5]]],
       markers: [
-        { kind: 'black', at: [6.5, 1.5] },
-        { kind: 'black', at: [1.5, 10.5] },
-        { kind: 'arrival', at: [1.5, 0.5], label: '▲ FROM 2F' },
-      ],
-      // 右側を大きく回って①を通り、左下の部屋を抜けて EV へ
-      route: [
-        [2, 0], [5, 0], [5, 11], [9, 11], [9, 0], [7, 0], [7, 7], [8, 7], [8, 8],
-        [2, 8], [2, 12], [6, 12], [6, 14], [8, 14],
+        { kind: 'arrival', at: [7.5, 0.5], label: '▲ FROM 2F' },
+        { kind: 'zombie', at: [9.5, 2.5] },
+        { kind: 'zombie', at: [4.5, 3.5] },
+        { kind: 'zombie', at: [1.5, 4.5] },
+        { kind: 'zombie', at: [2.5, 7.5] },
+        { kind: 'zombie', at: [2.5, 9.5] },
+        { kind: 'zombie', at: [6.5, 11.5] },
+        { kind: 'zombie', at: [1.5, 13.5] },
       ],
     },
   ],

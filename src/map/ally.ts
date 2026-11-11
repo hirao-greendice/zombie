@@ -58,7 +58,7 @@ export function buildAlly() {
 
   const el = document.createElement('div')
   el.className = 'map-label map-label--ally'
-  el.textContent = 'ALLY'
+  el.textContent = '仲間'
   const label = new CSS2DObject(el)
   label.position.y = 1.4 + WALL_HEIGHT + 0.3
   group.add(label)

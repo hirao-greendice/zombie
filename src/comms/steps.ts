@@ -10,7 +10,11 @@ export interface CommsStep {
    * 省略した場合はスタッフ操作(GM パネル)でのみ進む
    */
   answers?: string[]
+  /** この通信が届いてから画面の一番上に出す「現在の目標」。省略すると DEFAULT_OBJECTIVE */
+  objective?: string
 }
+
+export const DEFAULT_OBJECTIVE = '仲間と連絡を取り、脱出経路を確保せよ'
 
 export const COMMS_STEPS: CommsStep[] = [
   { title: 'TRANSMISSION 01', video: 'comms/step01.mp4' },

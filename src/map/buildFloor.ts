@@ -41,16 +41,6 @@ export const MARKER_COLOR: Record<MarkerKind, number> = {
   arrival: COLORS.stairs,
 }
 
-/** 前に腕を突き出したゾンビの線画(足元が原点、+z が正面) */
-const ZOMBIE_FIGURE: [Vec, Vec][] = [
-  [[0, 0.38, 0], [0, 0.64, 0.06]], // 胴(前かがみ)
-  [[0, 0.38, 0], [-0.09, 0, 0.03]], // 脚
-  [[0, 0.38, 0], [0.08, 0, -0.06]],
-  [[-0.11, 0.6, 0.05], [0.11, 0.6, 0.05]], // 肩
-  [[-0.11, 0.6, 0.05], [-0.1, 0.57, 0.34]], // 腕
-  [[0.11, 0.6, 0.05], [0.12, 0.55, 0.32]],
-]
-
 /** 階ごとの透明度をまとめて上げ下げするための登録簿 */
 export interface FloorHandle {
   group: THREE.Group
@@ -201,18 +191,44 @@ export function buildFloor(floor: Floor, width: number, depth: number, color: nu
   }
   if (barSegs.length) lines(barSegs, color, 1.4, 0.8)
 
-  // --- ドア: 開口部に門型の枠 ---
+  // --- ドア: 床から天井までの枠。上下を逆さにしても同じに見えるよう、開き戸の戸板と弧・引き戸の矢印は床と天井の両方に描く ---
   const doorSegs: [Vec, Vec][] = []
-  const dh = WALL_HEIGHT * 0.7
-  for (const { a, b } of floor.doors) {
-    doorSegs.push(
-      [P(...a), P(...a, dh)],
-      [P(...a, dh), P(...b, dh)],
-      [P(...b, dh), P(...b)],
-      [P(...a, 0.02), P(...b, 0.02)],
-    )
+  const swingSegs: [Vec, Vec][] = []
+  const levels = [0.02, WALL_HEIGHT - 0.02]
+  for (const { a, b, swing, slide } of floor.doors) {
+    doorSegs.push([P(...a), P(...a, WALL_HEIGHT)], [P(...b), P(...b, WALL_HEIGHT)])
+    for (const h of levels) doorSegs.push([P(...a, h), P(...b, h)])
+    if (swing) {
+      const [hx, hy] = swing.hinge
+      const [ox, oy] = swing.open
+      // 閉じたときの戸先(吊り元でない方の端)から、開いた戸先まで 1/4 円
+      const [cx, cy] = a[0] === hx && a[1] === hy ? b : a
+      const from = Math.atan2(cy - hy, cx - hx)
+      const to = Math.atan2(oy - hy, ox - hx)
+      const turn = Math.atan2(Math.sin(to - from), Math.cos(to - from))
+      const arc = (i: number, h: number): Vec => P(hx + Math.cos(from + (turn * i) / 8), hy + Math.sin(from + (turn * i) / 8), h)
+      // 開いた戸板(天井までの板)
+      swingSegs.push([P(ox, oy, 0), P(ox, oy, WALL_HEIGHT)])
+      for (const h of levels) {
+        swingSegs.push([P(hx, hy, h), P(ox, oy, h)])
+        for (let i = 0; i < 8; i += 2) swingSegs.push([arc(i, h), arc(i + 1, h)]) // 破線
+      }
+    }
+    if (slide) {
+      const [mx, my] = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]
+      const [ux, uy] = [b[0] - a[0], b[1] - a[1]]
+      // 扉の向きに沿って外へ向かう矢印を両側に
+      for (const h of levels) {
+        for (const s of [-1, 1]) {
+          const tip: Vec = P(mx + s * 0.4 * ux, my + s * 0.4 * uy, h)
+          swingSegs.push([P(mx + s * 0.1 * ux, my + s * 0.1 * uy, h), tip])
+          for (const side of [-1, 1]) swingSegs.push([tip, P(mx + s * 0.28 * ux - side * 0.1 * uy, my + s * 0.28 * uy + side * 0.1 * ux, h)])
+        }
+      }
+    }
   }
   lines(doorSegs, COLORS.door, 2)
+  if (swingSegs.length) lines(swingSegs, COLORS.door, 1.2, 0.6)
 
   // --- マーカー ---
   /** 床に広がって消える波紋 */
@@ -240,40 +256,36 @@ export function buildFloor(floor: Floor, width: number, depth: number, color: nu
     const phase = Math.random() * Math.PI * 2
 
     if (m.kind === 'zombie') {
-      // 床の危険エリア: 斜線入りの赤い四角
+      // センサーが捉えた「生体反応」として示す。床にいるか天井にいるかは見せないよう、すべて部屋の高さの真ん中を中心に上下対称にする
+      const mid = new THREE.Group()
+      mid.position.y = WALL_HEIGHT / 2
+      marker.add(mid)
+      // 光る反応点と、その周りのぼんやりした光
+      const core = new THREE.Mesh(new THREE.SphereGeometry(0.12, 16, 12), fillMat(color, 0.9))
+      const coreFade = fades[fades.length - 1]
+      const glow = new THREE.Mesh(new THREE.SphereGeometry(0.34, 20, 14), fillMat(color, 0.18))
+      const glowFade = fades[fades.length - 1]
+      mid.add(core, glow)
+      // レーダーのように広がる波紋(真上から見ると光点の周りに輪が広がる)
+      pulseRing(mid, color, phase, 0.2)
+      pulseRing(mid, color, phase + 0.5, 0.2)
+      // 床と天井には、反応のあるマスの枠だけを薄く
       const s = 0.45
-      const zone: [Vec, Vec][] = [
-        [[-s, 0.02, -s], [s, 0.02, -s]],
-        [[s, 0.02, -s], [s, 0.02, s]],
-        [[s, 0.02, s], [-s, 0.02, s]],
-        [[-s, 0.02, s], [-s, 0.02, -s]],
-      ]
-      // x + z = c の斜線を四角の中に等間隔で
-      for (let i = 1; i < 6; i++) {
-        const c = -2 * s + (4 * s * i) / 6
-        zone.push(c <= 0 ? [[-s, 0.02, c + s], [c + s, 0.02, -s]] : [[c - s, 0.02, s], [s, 0.02, c - s]])
-      }
-      const zoneMat = lines(zone, color, 1.6, 1, marker).material
-      const zoneFade = fades[fades.length - 1]
+      const frame: [Vec, Vec][] = levels.flatMap((h): [Vec, Vec][] => [
+        [[-s, h, -s], [s, h, -s]],
+        [[s, h, -s], [s, h, s]],
+        [[s, h, s], [-s, h, s]],
+        [[-s, h, s], [-s, h, -s]],
+      ])
+      lines(frame, color, 1.2, 0.4, marker)
 
-      const figure = new THREE.Group()
-      figure.rotation.y = phase
-      figure.scale.setScalar(1.4)
-      marker.add(figure)
-      lines(ZOMBIE_FIGURE, color, 2.6, 1, figure)
-      const head = new THREE.LineSegments(
-        new THREE.EdgesGeometry(new THREE.OctahedronGeometry(0.08)),
-        fade(new THREE.LineBasicMaterial({ color, transparent: true }), 1),
-      )
-      head.position.set(0, 0.72, 0.1)
-      figure.add(head)
-
-      pulseRing(marker, color, phase, 0.35)
       animated.push((t) => {
-        // ふらふら揺れながら向きを変える
-        figure.rotation.z = Math.sin(t * 1.6 + phase) * 0.08
-        figure.rotation.y = phase + Math.sin(t * 0.4 + phase) * 0.6
-        zoneMat.opacity = zoneFade.base * currentVisibility * (0.55 + 0.45 * Math.sin(t * 4 + phase))
+        // 心拍のように、短く脈打っては休む
+        const beat = Math.max(0, Math.sin(t * 5 + phase)) ** 8
+        core.scale.setScalar(1 + beat * 0.5)
+        glow.scale.setScalar(1 + beat * 0.3)
+        ;(core.material as THREE.MeshBasicMaterial).opacity = coreFade.base * currentVisibility * (0.6 + 0.4 * beat)
+        ;(glow.material as THREE.MeshBasicMaterial).opacity = glowFade.base * currentVisibility * (0.7 + 0.6 * beat)
       })
       continue
     }
@@ -291,7 +303,6 @@ export function buildFloor(floor: Floor, width: number, depth: number, color: nu
         arrow.position.y = 0.2 + p * WALL_HEIGHT * 0.8
         arrow.rotation.y = t
       })
-      if (m.label) label(m.label, 'map-label map-label--arrival', [0, WALL_HEIGHT + 0.3, 0], marker)
       continue
     }
 

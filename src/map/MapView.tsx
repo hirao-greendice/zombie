@@ -17,8 +17,10 @@ import type { Building, StairType } from './types'
 import type { AllyView } from '../sim/useSim'
 
 interface Props {
-  /** 横に並べて表示する棟(左から順)。配列が変わったら作り直すので、毎回同じ配列を渡す */
+  /** 横に並べて置く棟(左から順)。配列が変わったら作り直すので、毎回同じ配列を渡す */
   buildings: Building[]
+  /** 棟ごとの表示 ON/OFF(buildings と同じ順)。切り替えると、カメラが寄りながら隠す棟がフェードする */
+  shownWings?: boolean[]
   /** 階ごとの表示 ON/OFF(floors と同じ順。どの棟も同じ階をまとめて切り替える) */
   shownFloors: boolean[]
   autoRotate: boolean
@@ -46,10 +48,19 @@ interface Props {
    * cx, cy = 表示エリアの中心から、棟全体の中心までのずれ(px) / scale = 1マスの大きさ(px)
    */
   flatFrame?: () => { cx: number; cy: number; scale: number } | null
+  /**
+   * true: 本来の塔。2つ目の棟(東棟)をひとかたまりのまま南北の軸で 180° 回し、1つ目の棟(西棟)の上に
+   * 何もない階を1つ空けて載せる。切り替えると TOWER_SECONDS かけて回り、false に戻すと逆に回って隣へ戻る
+   */
+  tower?: boolean
 }
 
 /** 立体 ⇄ 平面の変形にかける時間(秒) */
 export const FLAT_SECONDS = 0.9
+/** 表示する棟の切り替えにかける時間(秒) */
+export const WING_SECONDS = 0.8
+/** 本来の塔にする / 戻すのにかける時間(秒) */
+export const TOWER_SECONDS = 3
 
 /** 表示している階より上の、消している階を持ち上げる量 */
 const LIFT = 5
@@ -66,6 +77,7 @@ type Waypoint = AllyView['route'][number]
 /** 親要素いっぱいに広がり、親の大きさが変わると描画サイズも追従する */
 export function MapView({
   buildings,
+  shownWings,
   shownFloors,
   autoRotate,
   resetKey,
@@ -79,11 +91,12 @@ export function MapView({
   flat = false,
   flatFloor = 0,
   flatFrame,
+  tower = false,
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null)
   // 描画ループから最新の props を読むための参照
-  const state = useRef({ shownFloors, autoRotate, resetKey, exploded, stairType, paused, allies, followAlly, onAllyFloorChange, showTrail, flat, flatFloor, flatFrame })
-  state.current = { shownFloors, autoRotate, resetKey, exploded, stairType, paused, allies, followAlly, onAllyFloorChange, showTrail, flat, flatFloor, flatFrame }
+  const state = useRef({ shownWings, shownFloors, autoRotate, resetKey, exploded, stairType, paused, allies, followAlly, onAllyFloorChange, showTrail, flat, flatFloor, flatFrame, tower })
+  state.current = { shownWings, shownFloors, autoRotate, resetKey, exploded, stairType, paused, allies, followAlly, onAllyFloorChange, showTrail, flat, flatFloor, flatFrame, tower }
 
   useEffect(() => {
     const host = hostRef.current!
@@ -97,8 +110,37 @@ export function MapView({
       cursor += b.width + WING_GAP
     }
     const floorCount = Math.max(...buildings.map((b) => b.floors.length))
-    /** 横に広いほど引いて見る */
-    const widthScale = Math.max(1, totalW / 12)
+
+    // --- 表示する棟: 棟の位置は動かさず、注視点と表示の幅を寄せ、隠す棟はフェードで消す ---
+    const wingShown = (w: number) => state.current.shownWings?.[w] ?? true
+    /** 表示している棟の、左端〜右端の中心と幅 */
+    const wingSpan = () => {
+      const idx = buildings.map((_, w) => w).filter(wingShown)
+      const ws = idx.length ? idx : buildings.map((_, w) => w)
+      const x0 = offsets[ws[0]] - buildings[ws[0]].width / 2
+      const x1 = offsets[ws[ws.length - 1]] + buildings[ws[ws.length - 1]].width / 2
+      return { center: (x0 + x1) / 2, width: x1 - x0, multi: Number(ws.length > 1) }
+    }
+    const wingVisGoal = (): number[] => buildings.map((_, w) => (wingShown(w) ? 1 : 0))
+    // 切り替えた瞬間の値(from)から目標(to)へ、WING_SECONDS かけて補間する
+    let wingFrom = { ...wingSpan(), vis: wingVisGoal() }
+    let wingTo = wingFrom
+    let wingNow = wingFrom
+    let wingStart = -Infinity
+    let lastWings = buildings.map((_, w) => wingShown(w)).join()
+
+    // --- 本来の塔: 東棟(2つ目)を西棟(1つ目)の上へ。towerT: 0 = 並べた状態 / 1 = 塔、towerS はそれをなめらかにしたもの ---
+    const canTower = buildings.length > 1
+    let towerT = canTower && tower ? 1 : 0
+    let towerS = towerT
+    let lastTower = towerT
+    /** 塔で、東棟の一番上の階(逆さにすると一番下)が来る階。西棟の上に何もない階を1つ空ける */
+    const towerBase = buildings[0].floors.length + 1
+    /** 塔の一番上の階 */
+    const towerTop = canTower ? towerBase + buildings[1].floors.length - 1 : 0
+
+    /** 横に広いほど引いて見る(塔では西棟1つ分の幅) */
+    const widthScale = () => Math.max(1, THREE.MathUtils.lerp(wingNow.width, buildings[0].width, towerS) / 12)
     // 表示エリアの大きさ(Stage の座標系)。下の resize() で更新する
     let width = Math.max(host.clientWidth, 1)
     let height = Math.max(host.clientHeight, 1)
@@ -115,14 +157,15 @@ export function MapView({
     host.appendChild(labelRenderer.domElement)
 
     const scene = new THREE.Scene()
-    scene.fog = new THREE.FogExp2(0x020604, 0.006 / widthScale)
+    const fog = new THREE.FogExp2(0x020604, 0.006 / widthScale())
+    scene.fog = fog
     const camera = new THREE.PerspectiveCamera(32, width / height, 0.1, 400)
 
     const controls = new OrbitControls(camera, renderer.domElement)
     controls.enableDamping = true
     controls.enablePan = false
     controls.minDistance = 10
-    controls.maxDistance = 70 * widthScale
+    controls.maxDistance = 70 * widthScale()
     controls.maxPolarAngle = Math.PI * 0.49
     controls.autoRotateSpeed = 0.5
 
@@ -138,8 +181,23 @@ export function MapView({
       }),
     )
     const allFloors = wings.flat()
-    // 階と階の間隔。離して表示 = FLOOR_GAP、積み重ね = 壁の高さ(上の階が下の階の壁の上に乗る)
-    const gapGoal = () => (state.current.exploded ? FLOOR_GAP : WALL_HEIGHT)
+    /**
+     * 東棟の階 e を、塔へ向かう途中(s = 0: 隣に正立 / 1: 西棟の上に逆さ)の位置に置く。
+     * 東棟の高さの真ん中を回転の中心にして、中心を弧を描くように持ち上げながら西へ倒す
+     */
+    const placeInTower = (g: THREE.Object3D, e: number, s: number) => {
+      const n = buildings[1].floors.length
+      const H = (n - 1) * gap + WALL_HEIGHT
+      const yTo = (towerBase + n - 1) * gap + WALL_HEIGHT - H / 2
+      const px = THREE.MathUtils.lerp(offsets[1], offsets[0], s)
+      const py = THREE.MathUtils.lerp(H / 2, yTo, s) + Math.sin(Math.PI * s) * H * 0.5
+      const th = Math.PI * s
+      const v = e * gap - H / 2
+      g.position.set(px - v * Math.sin(th), py + v * Math.cos(th), 0)
+      g.rotation.z = th
+    }
+    // 階と階の間隔。離して表示 = FLOOR_GAP、積み重ね = 壁の高さ(上の階が下の階の壁の上に乗る)。塔はいつも積み重ねる
+    const gapGoal = () => (state.current.exploded && !state.current.tower ? FLOOR_GAP : WALL_HEIGHT)
     let gap = gapGoal()
 
     // 棟の外周(平面上の4隅)
@@ -149,25 +207,29 @@ export function MapView({
     })
 
     // 複数の棟を並べたときは、棟の名前を手前に出す
-    if (buildings.length > 1) {
-      buildings.forEach((b, w) => {
-        const el = document.createElement('div')
-        el.className = 'map-label map-label--wing'
-        el.textContent = b.name
-        const obj = new CSS2DObject(el)
-        obj.position.set(offsets[w], 0, b.depth / 2 + 1.6)
-        scene.add(obj)
-      })
-    }
+    const wingLabels = buildings.map((b, w) => {
+      const el = document.createElement('div')
+      el.className = 'map-label map-label--wing'
+      el.textContent = b.name
+      const obj = new CSS2DObject(el)
+      obj.position.set(offsets[w], 0, b.depth / 2 + 1.6)
+      scene.add(obj)
+      return el
+    })
 
-    // 階をつなぐ柱(各棟の四隅)
-    const pillarGeo = new THREE.BufferGeometry().setFromPoints(
-      outlines.flat().flatMap(([x, z]) => [new THREE.Vector3(x, 0, z), new THREE.Vector3(x, 1, z)]),
-    )
-    const pillarMat = new THREE.LineDashedMaterial({ color: COLORS.line, dashSize: 0.2, gapSize: 0.2, transparent: true, opacity: 0.35 })
-    const pillars = new THREE.LineSegments(pillarGeo, pillarMat)
-    pillars.computeLineDistances()
+    // 階をつなぐ柱(各棟の四隅)。棟ごとにフェードできるよう、棟ごとに分ける
+    const pillars = new THREE.Group()
     scene.add(pillars)
+    const pillarMats = outlines.map((o) => {
+      const mat = new THREE.LineDashedMaterial({ color: COLORS.line, dashSize: 0.2, gapSize: 0.2, transparent: true, opacity: 0.35 })
+      const seg = new THREE.LineSegments(
+        new THREE.BufferGeometry().setFromPoints(o.flatMap(([x, z]) => [new THREE.Vector3(x, 0, z), new THREE.Vector3(x, 1, z)])),
+        mat,
+      )
+      seg.computeLineDistances()
+      pillars.add(seg)
+      return mat
+    })
 
     // 地面の大きなグリッド
     const ground = new THREE.GridHelper(120, 60, COLORS.grid, COLORS.grid)
@@ -179,20 +241,28 @@ export function MapView({
 
     // --- スキャン演出 ---
     // 全階表示: 各棟の外周が上下に走査 / 階選択時: 横一線が奥から手前へ走査
-    const scanRing = new THREE.LineSegments(
-      new THREE.BufferGeometry().setFromPoints(
-        outlines.flatMap((o) => o.flatMap(([x, z], i) => {
-          const [nx, nz] = o[(i + 1) % o.length]
-          return [new THREE.Vector3(x, 0, z), new THREE.Vector3(nx, 0, nz)]
-        })),
-      ),
-      new THREE.LineBasicMaterial({ color: COLORS.line, transparent: true, opacity: 0.8 }),
-    )
+    const scanRing = new THREE.Group()
+    const scanRingMats = outlines.map((o) => {
+      const mat = new THREE.LineBasicMaterial({ color: COLORS.line, transparent: true, opacity: 0.8 })
+      scanRing.add(
+        new THREE.LineSegments(
+          new THREE.BufferGeometry().setFromPoints(
+            o.flatMap(([x, z], i) => {
+              const [nx, nz] = o[(i + 1) % o.length]
+              return [new THREE.Vector3(x, 0, z), new THREE.Vector3(nx, 0, nz)]
+            }),
+          ),
+          mat,
+        ),
+      )
+      return mat
+    })
     scene.add(scanRing)
 
     const scanBar = new THREE.Group()
     const scanPlane = new THREE.Mesh(
-      new THREE.PlaneGeometry(totalW, WALL_HEIGHT * 1.4),
+      // 幅 1 で作り、表示している棟の幅に合わせて横に伸ばす
+      new THREE.PlaneGeometry(1, WALL_HEIGHT * 1.4),
       new THREE.MeshBasicMaterial({
         color: COLORS.line,
         transparent: true,
@@ -204,7 +274,7 @@ export function MapView({
     )
     scanPlane.position.y = WALL_HEIGHT * 0.7
     const scanLine = new THREE.Line(
-      new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-totalW / 2, 0.03, 0), new THREE.Vector3(totalW / 2, 0.03, 0)]),
+      new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-0.5, 0.03, 0), new THREE.Vector3(0.5, 0.03, 0)]),
       new THREE.LineBasicMaterial({ color: COLORS.line }),
     )
     scanBar.add(scanPlane, scanLine)
@@ -306,7 +376,10 @@ export function MapView({
         /** 新しい指示が来たら通る点を順に歩く。止まっているときは階の上下移動に追従する */
         tick(dt: number, t: number) {
           const a = view()
-          allyObj.group.visible = !!a
+          // 塔にしているあいだは、東棟の仲間は消す(棟ごと回っているので位置が合わない)
+          const wv = wingNow.vis[w] * (w === 1 ? 1 - towerS : 1)
+          allyObj.group.visible = !!a && wv > 0.01
+          trailMat.opacity = wv
           if (!a) {
             trailLine.visible = false
             return
@@ -358,8 +431,8 @@ export function MapView({
           }
           allyObj.group.position.copy(allyPos!)
           allyObj.tick(t, walking, allyHeading)
-          // 消している階にいるときは仲間も消す
-          allyObj.setVisibility(visibility[allyFloor])
+          // 消している階・棟にいるときは仲間も消す
+          allyObj.setVisibility(visibility[allyFloor] * wv)
 
           if (state.current.showTrail) {
             const points = trailDone.map((p) => ({ floor: p.floor, v: toWorld(p).add(TRAIL_LIFT) }))
@@ -403,9 +476,12 @@ export function MapView({
 
     // 表示している階の真ん中を見る。階が多いほど・棟が横に広いほど引いて見る
     const updateGoal = () => {
-      const [lo, hi] = shownRange()
-      goalTarget.set(0, ((lo + hi) / 2) * gap, 0)
-      goalDistance = (lo === hi ? 24 : 24 + (hi - lo) * (state.current.exploded ? 8 : 4)) * widthScale
+      const [shownLo, shownHi] = shownRange()
+      // 塔では、塔全体(1F〜一番上)を見る
+      const lo = THREE.MathUtils.lerp(shownLo, 0, towerS)
+      const hi = THREE.MathUtils.lerp(shownHi, towerTop, towerS)
+      goalTarget.set(THREE.MathUtils.lerp(wingNow.center, offsets[0], towerS), ((lo + hi) / 2) * gap, 0)
+      goalDistance = (lo === hi ? 24 : 24 + (hi - lo) * (state.current.exploded && !state.current.tower ? 8 : 4)) * widthScale()
     }
     updateGoal()
     controls.target.copy(goalTarget)
@@ -421,13 +497,26 @@ export function MapView({
       sph.theta = Math.atan2(Math.sin(sph.theta), Math.cos(sph.theta))
       orbitSnap = { target: controls.target.clone(), sph }
     }
-    /** 平面にしたときの、真上からの距離と注視点のずれ。flatFrame があればそれに合わせ、なければ棟全体がちょうど収まるように */
-    const flatView = () => {
+    /** 平面にしたときの、真上からの距離と注視点。flatFrame があればそれに合わせ、なければ表示している棟がちょうど収まるように */
+    const flatViewGoal = () => {
       const tan = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))
       const frame = state.current.flatFrame?.()
-      if (!frame) return { distance: Math.max((D + 2) / (2 * tan), (totalW + 2) / (2 * tan * camera.aspect)), dx: 0, dz: 0 }
+      const { center, width: w } = wingTo
+      if (!frame) return { distance: Math.max((D + 2) / (2 * tan), (w + 2) / (2 * tan * camera.aspect)), x: center, z: 0 }
       // 真上から見下ろすと、距離 r の床で 1マス = (height / 2) / (r * tan) px
-      return { distance: height / 2 / (frame.scale * tan), dx: -frame.cx / frame.scale, dz: -frame.cy / frame.scale }
+      return { distance: height / 2 / (frame.scale * tan), x: center - frame.cx / frame.scale, z: -frame.cy / frame.scale }
+    }
+    // 平面のまま棟を切り替えたときも、真上からの視点を前の視点からなめらかに動かす
+    let flatFrom = flatViewGoal()
+    let flatNow = flatFrom
+    const flatView = (we: number) => {
+      const to = flatViewGoal()
+      flatNow = {
+        distance: THREE.MathUtils.lerp(flatFrom.distance, to.distance, we),
+        x: THREE.MathUtils.lerp(flatFrom.x, to.x, we),
+        z: THREE.MathUtils.lerp(flatFrom.z, to.z, we),
+      }
+      return flatNow
     }
     const ease = (x: number) => x * x * x * (x * (x * 6 - 15) + 10)
 
@@ -441,7 +530,35 @@ export function MapView({
       const { shownFloors: sf, autoRotate: ar, resetKey: rk, exploded: ex } = state.current
       const [lo, hi] = shownRange()
       const k = 1 - Math.exp(-dt * 4)
+
+      // 表示する棟が変わったら、いまの状態から新しい目標へ補間し直す
+      const wingsKey = buildings.map((_, w) => wingShown(w)).join()
+      if (wingsKey !== lastWings) {
+        lastWings = wingsKey
+        wingFrom = wingNow
+        wingTo = { ...wingSpan(), vis: wingVisGoal() }
+        flatFrom = flatNow
+        wingStart = t
+        zoomUntil = t + 1.5
+      }
+      const we = ease(THREE.MathUtils.clamp((t - wingStart) / WING_SECONDS, 0, 1))
+      wingNow = {
+        center: THREE.MathUtils.lerp(wingFrom.center, wingTo.center, we),
+        width: THREE.MathUtils.lerp(wingFrom.width, wingTo.width, we),
+        multi: THREE.MathUtils.lerp(wingFrom.multi, wingTo.multi, we),
+        vis: wingTo.vis.map((v, w) => THREE.MathUtils.lerp(wingFrom.vis[w], v, we)),
+      }
+      fog.density = 0.006 / widthScale()
+      controls.maxDistance = Math.max(70 * widthScale(), goalDistance * 1.2)
+
       gap = THREE.MathUtils.lerp(gap, gapGoal(), k)
+      const towerGoal = canTower && state.current.tower ? 1 : 0
+      if (towerGoal !== lastTower) {
+        lastTower = towerGoal
+        zoomUntil = t + TOWER_SECONDS
+      }
+      towerT = THREE.MathUtils.clamp(towerT + (towerGoal ? 1 : -1) * (dt / TOWER_SECONDS), 0, 1)
+      towerS = ease(towerT)
       updateGoal()
 
       // 選択階へ注視点と距離をなめらかに寄せる(距離は切替直後だけ。それ以外はピンチ操作を優先)
@@ -464,8 +581,8 @@ export function MapView({
         // 変形中・平面: カメラを真上へ回し込みながら、残す階の真ん中へ寄る
         if (!orbitSnap) takeSnap()
         const snap = orbitSnap!
-        const fv = flatView()
-        const target = snap.target.clone().lerp(new THREE.Vector3(fv.dx, floorY[state.current.flatFloor] ?? 0, fv.dz), e)
+        const fv = flatView(we)
+        const target = snap.target.clone().lerp(new THREE.Vector3(fv.x, floorY[state.current.flatFloor] ?? 0, fv.z), e)
         const sph = new THREE.Spherical(
           THREE.MathUtils.lerp(snap.sph.radius, fv.distance, e),
           THREE.MathUtils.lerp(snap.sph.phi, 0.0001, e),
@@ -476,6 +593,7 @@ export function MapView({
         camera.position.setFromSpherical(sph).add(target)
         camera.lookAt(target)
       } else {
+        flatView(we)
         if (orbitSnap) {
           // 立体に戻りきったら、元の視点から操作を再開
           controls.target.copy(orbitSnap.target)
@@ -494,22 +612,33 @@ export function MapView({
         visibility[i] = THREE.MathUtils.lerp(visibility[i], visibilityGoal(i), k)
         floorY[i] = THREE.MathUtils.lerp(floorY[i], liftGoal(i), k)
       }
-      for (const floors of wings) {
+      wings.forEach((floors, w) => {
         floors.forEach((f, i) => {
-          f.setVisibility(visibility[i])
+          f.setVisibility(visibility[i] * wingNow.vis[w])
           f.setStairType(state.current.stairType)
-          f.group.position.y = floorY[i]
           // 平面にするときは、壁を床へ沈める
           f.group.scale.y = 1 - 0.97 * e
+          if (w === 1 && towerS > 0) placeInTower(f.group, i, towerS)
+          else {
+            f.group.position.set(offsets[w], floorY[i], 0)
+            f.group.rotation.z = 0
+          }
           f.setLineScale(1 + e)
           f.tick(t)
         })
-      }
+      })
+      // 棟の名前は、2つ並べているときだけ
+      wingLabels.forEach((el, w) => {
+        const v = wingNow.vis[w] * wingNow.multi * (1 - towerS)
+        el.style.opacity = String(0.85 * v)
+        el.style.visibility = v > 0.01 ? '' : 'hidden'
+      })
+      compass.position.x = THREE.MathUtils.lerp(wingNow.center, offsets[0], towerS)
       // 四隅の柱は、複数の階を離して表示しているときだけ見せる
       pillars.position.y = lo * gap
       pillars.scale.y = (hi - lo) * gap + WALL_HEIGHT
       const spread = (gap - WALL_HEIGHT) / (FLOOR_GAP - WALL_HEIGHT)
-      pillarMat.opacity = 0.35 * spread * (lo === hi ? 0 : 1) * (1 - e)
+      pillarMats.forEach((m, w) => (m.opacity = 0.35 * spread * (lo === hi ? 0 : 1) * (1 - e) * wingNow.vis[w] * (1 - towerS)))
 
       for (const r of allyRunners) r.tick(dt, t)
 
@@ -522,12 +651,13 @@ export function MapView({
         scanRing.visible = true
         scanBar.visible = false
         scanRing.position.y = lo * gap + p * ((hi - lo) * gap + WALL_HEIGHT)
-        ;(scanRing.material as THREE.LineBasicMaterial).opacity = 0.8 * Math.sin(p * Math.PI)
+        scanRingMats.forEach((m, w) => (m.opacity = 0.8 * Math.sin(p * Math.PI) * wingNow.vis[w] * (1 - towerS)))
       } else {
         const p = (t * 0.3) % 1
         scanRing.visible = false
         scanBar.visible = true
-        scanBar.position.set(0, lo * gap, -D / 2 + p * D)
+        scanBar.position.set(wingNow.center, lo * gap, -D / 2 + p * D)
+        scanBar.scale.x = wingNow.width
       }
 
       composer.render()

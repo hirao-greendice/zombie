@@ -26,4 +26,4 @@ export const BUILDINGS_IN = Object.fromEntries(
 ) as Record<WingView, Building[]>
 
 /** 棟を並べるときのすき間(マス)。3D と、平面に変形したときに重ねる描画レイヤーで同じにする */
-export const WING_GAP = 3
+export const WING_GAP = 1

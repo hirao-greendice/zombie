@@ -3,7 +3,9 @@ import { Stage } from './components/Stage'
 import { DevOverlay } from './components/DevOverlay'
 import { MapScreen } from './components/MapScreen'
 import { CommsScreen } from './components/CommsScreen'
-import { TabBar, type TabId } from './components/TabBar'
+import { HackScreen } from './components/HackScreen'
+import { TabBar, TABS, type TabId } from './components/TabBar'
+import { COMMS_STEPS, DEFAULT_OBJECTIVE } from './comms/steps'
 import { GmPanel } from './components/GmPanel'
 import { useComms } from './comms/useComms'
 import { useSim } from './sim/useSim'
@@ -14,12 +16,13 @@ import type { StairType } from './map/types'
 const params = new URLSearchParams(location.search)
 /** ?sim= の指示を送ったか(開発モードで初期化が2回走っても1回だけ送る) */
 let initialOrderSent = false
-/** ?wing=west / east / both で最初に表示する棟 */
-const initialView: WingView = (['west', 'east', 'both'] as const).find((v) => v === params.get('wing')) ?? 'east'
+/** ?wing=west / east / both で最初に表示する棟(?tower で塔から始めるときは両方) */
+const initialView: WingView = params.has('tower') ? 'both' : ((['west', 'east', 'both'] as const).find((v) => v === params.get('wing')) ?? 'east')
 
 export function App() {
-  const [tab, setTab] = useState<TabId>(() => (params.get('tab') === 'comms' ? 'comms' : 'map'))
-  const [stairType, setStairType] = useState<StairType>(() => (params.get('stairs') === 'uturn' ? 'uturn' : 'straight'))
+  const [tab, setTab] = useState<TabId>(() => TABS.find((t) => t.id === params.get('tab'))?.id ?? 'map')
+  // 階段の形は ?stairs=uturn で切り替える(確認用)
+  const [stairType] = useState<StairType>(() => (params.get('stairs') === 'uturn' ? 'uturn' : 'straight'))
   const [view, setView] = useState<WingView>(initialView)
   /** 最後に線を描いた棟(3D で追いかける仲間)。片方の棟だけ表示しているときはその棟 */
   const [target, setTarget] = useState<WingId>(initialView === 'west' ? 'west' : 'east')
@@ -56,10 +59,20 @@ export function App() {
     comms.receive(sims[target].exec(order).reply)
   }, [])
 
-  // 両方の画面を常に置いておき、表示だけ切り替える(マップの視点や描きかけの線を保つため)
+  /** 画面の一番上に出す目標: 最後に届いた通信の目標 */
+  const objective = COMMS_STEPS[comms.unlocked - 1]?.objective ?? DEFAULT_OBJECTIVE
+
+  // どの画面も常に置いておき、表示だけ切り替える(マップの視点や描きかけの線を保つため)
   return (
     <>
       <Stage>
+        <div className="objective-bar">
+          <span className="objective-tag">現在の目標</span>
+          <span className="objective-text" key={objective}>
+            {objective}
+          </span>
+        </div>
+        <TabBar tab={tab} onChange={setTab} badges={{ comms: tab !== 'comms' && comms.hasNew }} />
         <div className={`tab-page ${tab === 'map' ? '' : 'is-hidden'}`}>
           <MapScreen
             view={view}
@@ -68,21 +81,25 @@ export function App() {
             onTargetChange={setTarget}
             active={tab === 'map'}
             stairType={stairType}
-            onStairTypeChange={setStairType}
             sims={sims}
             plans={plans}
             onSendPlan={sendPlan}
-            // リプレイとデモは、表示している棟の仲間みんな
-            onReplay={() => shownWings.forEach((id) => sims[id].replay())}
-            onLoadDemo={() => shownWings.forEach((id) => sims[id].loadDemo())}
           />
         </div>
         <div className={`tab-page ${tab === 'comms' ? '' : 'is-hidden'}`}>
           <CommsScreen comms={comms} active={tab === 'comms'} />
         </div>
-        <TabBar tab={tab} onChange={setTab} badges={{ comms: tab !== 'comms' && comms.hasNew }} />
+        <div className={`tab-page ${tab === 'hack' ? '' : 'is-hidden'}`}>
+          <HackScreen />
+        </div>
       </Stage>
-      <GmPanel comms={comms} onResetAlly={() => (['west', 'east'] as const).forEach((w) => plans.reset(w))} />
+      <GmPanel
+        comms={comms}
+        onResetAlly={() => (['west', 'east'] as const).forEach((w) => plans.reset(w))}
+        // リプレイとデモは、表示している棟の仲間みんな
+        onReplay={() => shownWings.forEach((id) => sims[id].replay())}
+        onLoadDemo={() => shownWings.forEach((id) => sims[id].loadDemo())}
+      />
       <DevOverlay />
     </>
   )
