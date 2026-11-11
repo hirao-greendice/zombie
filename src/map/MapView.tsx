@@ -174,8 +174,9 @@ export function MapView({
       b.floors.map((f, i) => {
         const h = buildFloor(f, b.width, b.depth, floorColor(i))
         h.group.position.x = offsets[w]
-        // カメラは常に上から見るので、下の階 → 上の階の床板 → 上の階の中身、の順に描く
-        h.group.traverse((o) => (o.renderOrder = i * 10 + (o.userData.slab ? 0 : 1)))
+        // カメラは常に上から見るので、下の階 → 上の階の床板 → 上の階の中身 → 上の階の壁の面、の順に描く
+        // (壁の面を中身より後に描くと、壁の奥にある線だけが面で暗くなる)
+        h.group.traverse((o) => (o.renderOrder = i * 10 + (o.userData.slab ? 0 : o.userData.wallFace ? 2 : 1)))
         scene.add(h.group)
         return h
       }),

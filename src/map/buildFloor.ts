@@ -79,7 +79,8 @@ export function buildFloor(floor: Floor, width: number, depth: number, color: nu
   const lines = (segs: [Vec, Vec][], color: number, linewidth: number, opacity = 1, parent: THREE.Object3D = group) => {
     const geo = new LineSegmentsGeometry()
     geo.setPositions(segs.flat(2))
-    const mat = new LineMaterial({ color, linewidth, transparent: true, depthWrite: false })
+    // 奥行きを書き込んでおき、あとから描く壁の面(MapView で線より後に描く)で、壁の奥の線だけを暗くする
+    const mat = new LineMaterial({ color, linewidth, transparent: true, depthWrite: true })
     lineMaterials.push(mat)
     baseWidths.set(mat, linewidth)
     const obj = new LineSegments2(geo, fade(mat, opacity))
@@ -150,28 +151,38 @@ export function buildFloor(floor: Floor, width: number, depth: number, color: nu
       lines(
         stairRooms.flatMap((r) => fn(r, floor.doors, WALL_HEIGHT)).map(([a, b]): [Vec, Vec] => [P(...a), P(...b)]),
         COLORS.stairs,
-        1.4,
+        2.2,
       )
     byStairType.straight.push(make(straightStairs))
     byStairType.uturn.push(make(uTurnStairs))
   }
 
-  // --- 壁: 上辺は明るく(上から見て間取りが読める)、下辺と縦線は控えめに + 半透明の面 ---
+  // --- 壁: 上辺は明るく(上から見て間取りが読める)、下辺は控えめに + 暗い半透明の面 ---
+  // 面は奥にある線を暗く沈める(重ねたり横から見たりしたときに、手前の壁だけがはっきり見える)
   const wallTops: [Vec, Vec][] = []
   const wallFrames: [Vec, Vec][] = []
-  const wallMat = fillMat(color, 0.03)
+  const wallMat = fade(
+    new THREE.MeshBasicMaterial({
+      color: new THREE.Color(COLORS.slab).lerp(new THREE.Color(color), 0.1),
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      // 面の上に乗っている線(上辺・下辺・扉)は隠さない
+      polygonOffset: true,
+      polygonOffsetFactor: 1,
+      polygonOffsetUnits: 1,
+    }),
+    0.6,
+  )
   for (const [[x1, y1], [x2, y2]] of computeWalls(floor, width, depth)) {
     wallTops.push([P(x1, y1, WALL_HEIGHT), P(x2, y2, WALL_HEIGHT)])
-    wallFrames.push(
-      [P(x1, y1), P(x2, y2)],
-      [P(x1, y1), P(x1, y1, WALL_HEIGHT)],
-      [P(x2, y2), P(x2, y2, WALL_HEIGHT)],
-    )
+    wallFrames.push([P(x1, y1), P(x2, y2)])
     const len = Math.hypot(x2 - x1, y2 - y1)
     const plane = new THREE.Mesh(new THREE.PlaneGeometry(len, WALL_HEIGHT), wallMat)
     const [mx, , mz] = P((x1 + x2) / 2, (y1 + y2) / 2)
     plane.position.set(mx, WALL_HEIGHT / 2, mz)
     if (x1 === x2) plane.rotation.y = Math.PI / 2
+    plane.userData.wallFace = true
     group.add(plane)
   }
   lines(wallFrames, color, 1.2, 0.35)
