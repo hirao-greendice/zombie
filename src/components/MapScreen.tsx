@@ -95,9 +95,14 @@ export function MapScreen({ view, onViewChange, target, onTargetChange, active, 
   /** 本来の塔(東棟を回して西棟の上に載せる)。立体で見る。?tower で塔から始める */
   const [tower, setTower] = useState(() => params.has('tower'))
   const towerTimer = useRef(0)
-  const toggleTower = () => {
+  /** 塔の種類。true = 本来の塔(東棟を逆さに載せる) / wrong = 間違った塔(東棟を反転せずそのまま載せる) */
+  const [towerKind, setTowerKind] = useState<'true' | 'wrong'>('true')
+  const toggleTower = (kind: 'true' | 'wrong') => {
     clearTimeout(towerTimer.current)
-    if (tower) return setTower(false)
+    if (tower && towerKind === kind) return setTower(false)
+    setTowerKind(kind)
+    // 別の塔になっているときは、隣へ戻さず、上に載っている東棟がその場で反転する
+    if (tower) return
     // 塔は両方の棟・全部の階を立体で見る
     setMode('3d')
     changeView('both')
@@ -185,6 +190,7 @@ export function MapScreen({ view, onViewChange, target, onTargetChange, active, 
               resetKey={resetKey}
               exploded={exploded}
               tower={tower}
+              towerFlip={towerKind === 'true'}
               stairType={stairType}
               flat={mode === '2d'}
               flatFloor={flatFloor}
@@ -231,8 +237,11 @@ export function MapScreen({ view, onViewChange, target, onTargetChange, active, 
           </button>
         </div>
 
-        <button className={`side-btn tower-btn ${tower ? 'is-active' : ''}`} onClick={toggleTower}>
-          {tower ? '塔から戻す' : '本来の塔'}
+        <button className={`side-btn tower-btn ${tower && towerKind === 'true' ? 'is-active' : ''}`} onClick={() => toggleTower('true')}>
+          {tower && towerKind === 'true' ? '塔から戻す' : '本来の塔'}
+        </button>
+        <button className={`side-btn tower-btn ${tower && towerKind === 'wrong' ? 'is-active' : ''}`} onClick={() => toggleTower('wrong')}>
+          {tower && towerKind === 'wrong' ? '塔から戻す' : '間違った塔'}
         </button>
 
         {/* 塔のあいだは、棟と階の切り替えはしない */}

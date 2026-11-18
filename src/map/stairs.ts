@@ -52,14 +52,19 @@ export function straightStairs(room: Room, doors: Door[], rise: number): [PlanVe
   const door = doors.find(({ a, b }) => onEdge(...a) && onEdge(...b))
   const dv = door ? (vertical ? (door.a[1] + door.b[1]) / 2 : (door.a[0] + door.b[0]) / 2) : vMin
   const dir = dv - vMin <= vMax - dv ? 1 : -1
+  // 段は両端に LANDING ずつ平らな床を残した間だけに収める(上りきった側は上の階の床の高さ)
   const va = (dir === 1 ? vMin : vMax) + dir * LANDING
-  const vb = dir === 1 ? vMax : vMin
+  const vEnd = dir === 1 ? vMax : vMin
+  const vb = vEnd - dir * LANDING
 
   const segs: [PlanVec, PlanVec][] = []
   const seg = (a: [number, number, number], b: [number, number, number]) => segs.push([toPlan(...a), toPlan(...b)])
 
   steppedFlight(seg, uMin, uMax, va, vb, 0, rise, STEPS)
   seg([uMin, vb, rise], [uMax, vb, rise])
+  // 上りきった先の平らな床(段の無い1マス)
+  for (const u of [uMin, uMax]) seg([u, vb, rise], [u, vEnd, rise])
+  seg([uMin, vEnd, rise], [uMax, vEnd, rise])
 
   return segs
 }

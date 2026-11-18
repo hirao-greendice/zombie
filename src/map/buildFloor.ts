@@ -8,6 +8,10 @@ import { straightStairs, uTurnStairs } from './stairs'
 import type { Floor, MarkerKind, RoomKind, StairType } from './types'
 
 export const WALL_HEIGHT = 2
+/** 床板の厚さ。壁 4m に対して床 50cm の比率(1/8) */
+export const SLAB_THICKNESS = WALL_HEIGHT / 8
+/** 積み重ねたときの1階分の高さ(壁 + 床板)。上の階の床板が下の階の壁の上に乗る */
+export const STORY_HEIGHT = WALL_HEIGHT + SLAB_THICKNESS
 // 離して表示するときの階の間隔(壁の高さ + すき間 3.5)
 export const FLOOR_GAP = 5.5
 /** 鉄格子の縦棒の間隔 */
@@ -116,15 +120,22 @@ export function buildFloor(floor: Floor, width: number, depth: number, color: nu
   for (let y = 1; y < depth; y++) grid.push([P(0, y), P(width, y)])
   lines(grid, gridColor, 1, 0.18)
 
-  // 暗い床板。下の階の線が透けて重なりすぎないように、手前の階で少し隠す
+  // 暗い床板(厚さ SLAB_THICKNESS)。下の階の線が透けて重なりすぎないように、手前の階で少し隠す
   const slab = new THREE.Mesh(
-    new THREE.PlaneGeometry(width, depth),
+    new THREE.BoxGeometry(width, SLAB_THICKNESS, depth),
     fade(new THREE.MeshBasicMaterial({ color: COLORS.slab, transparent: true, depthWrite: false, side: THREE.DoubleSide }), 0.7),
   )
-  slab.rotation.x = -Math.PI / 2
-  slab.position.y = -0.02
+  slab.position.y = -SLAB_THICKNESS / 2 - 0.02
   slab.userData.slab = true
   group.add(slab)
+  // 床板の厚みが分かるよう、下の面の外周と四隅の縦線を描く
+  const slabCorners: [number, number][] = [[0, 0], [width, 0], [width, depth], [0, depth]]
+  const slabEdges: [Vec, Vec][] = []
+  slabCorners.forEach(([x, y], i) => {
+    const [nx, ny] = slabCorners[(i + 1) % 4]
+    slabEdges.push([P(x, y, -SLAB_THICKNESS), P(nx, ny, -SLAB_THICKNESS)], [P(x, y, -SLAB_THICKNESS), P(x, y, 0)])
+  })
+  lines(slabEdges, color, 1.2, 0.5)
 
   // --- 部屋の床塗り ---
   for (const room of floor.rooms) {
@@ -143,7 +154,7 @@ export function buildFloor(floor: Floor, width: number, depth: number, color: nu
     }
   }
 
-  // --- 階段: 直階段 / U 字を両方作っておき、表示を切り替える(その階の壁の高さに収める。最上階は屋上へ) ---
+  // --- 階段: 直階段 / U 字を両方作っておき、表示を切り替える(その階の壁の高さに収め、上の階の床板には入り込まない。最上階は屋上へ) ---
   const stairRooms = floor.rooms.filter((r) => r.kind === 'stairs')
   const byStairType: Record<StairType, THREE.Object3D[]> = { straight: [], uturn: [] }
   if (stairRooms.length) {

@@ -9,7 +9,7 @@ import { CSS2DObject, CSS2DRenderer } from 'three/examples/jsm/renderers/CSS2DRe
 import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js'
 import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js'
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js'
-import { buildFloor, COLORS, FLOOR_GAP, WALL_HEIGHT, type FloorHandle } from './buildFloor'
+import { buildFloor, COLORS, FLOOR_GAP, SLAB_THICKNESS, STORY_HEIGHT, WALL_HEIGHT, type FloorHandle } from './buildFloor'
 import { buildAlly } from './ally'
 import { WING_GAP } from './wings'
 import { floorColor } from './floorColors'
@@ -53,6 +53,11 @@ interface Props {
    * 何もない階を1つ空けて載せる。切り替えると TOWER_SECONDS かけて回り、false に戻すと逆に回って隣へ戻る
    */
   tower?: boolean
+  /**
+   * 塔の載せ方。true(既定): 本来の塔(東棟を逆さにして載せる) / false: 間違った塔(東棟を反転せず、正立のまま載せる)。
+   * 塔の途中で変えても、並べた状態に戻るまでは前の載せ方のまま動く
+   */
+  towerFlip?: boolean
 }
 
 /** 立体 ⇄ 平面の変形にかける時間(秒) */
@@ -92,11 +97,12 @@ export function MapView({
   flatFloor = 0,
   flatFrame,
   tower = false,
+  towerFlip = true,
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null)
   // 描画ループから最新の props を読むための参照
-  const state = useRef({ shownWings, shownFloors, autoRotate, resetKey, exploded, stairType, paused, allies, followAlly, onAllyFloorChange, showTrail, flat, flatFloor, flatFrame, tower })
-  state.current = { shownWings, shownFloors, autoRotate, resetKey, exploded, stairType, paused, allies, followAlly, onAllyFloorChange, showTrail, flat, flatFloor, flatFrame, tower }
+  const state = useRef({ shownWings, shownFloors, autoRotate, resetKey, exploded, stairType, paused, allies, followAlly, onAllyFloorChange, showTrail, flat, flatFloor, flatFrame, tower, towerFlip })
+  state.current = { shownWings, shownFloors, autoRotate, resetKey, exploded, stairType, paused, allies, followAlly, onAllyFloorChange, showTrail, flat, flatFloor, flatFrame, tower, towerFlip }
 
   useEffect(() => {
     const host = hostRef.current!
@@ -134,6 +140,12 @@ export function MapView({
     let towerT = canTower && tower ? 1 : 0
     let towerS = towerT
     let lastTower = towerT
+    /**
+     * 東棟を逆さにする量。flipT: 0 = 正立(間違った塔)/ 1 = 逆さ(本来の塔)、flipS はそれをなめらかにしたもの。
+     * 塔の上で載せ方を変えると、隣へ戻さずにその場で TOWER_SECONDS かけて反転する
+     */
+    let flipT = towerFlip ? 1 : 0
+    let flipS = flipT
     /** 塔で、東棟の一番上の階(逆さにすると一番下)が来る階。西棟の上に何もない階を1つ空ける */
     const towerBase = buildings[0].floors.length + 1
     /** 塔の一番上の階 */
@@ -188,17 +200,24 @@ export function MapView({
      */
     const placeInTower = (g: THREE.Object3D, e: number, s: number) => {
       const n = buildings[1].floors.length
-      const H = (n - 1) * gap + WALL_HEIGHT
-      const yTo = (towerBase + n - 1) * gap + WALL_HEIGHT - H / 2
+      // 東棟のかたまり: 1F の床板の下面(-SLAB_THICKNESS)〜最上階の壁の上端。c = 1F の床からかたまりの中心までの高さ
+      const H = (n - 1) * gap + WALL_HEIGHT + SLAB_THICKNESS
+      const c = H / 2 - SLAB_THICKNESS
+      // 塔での中心の高さ。逆さ(本来の塔)でも正立(間違った塔)でも、東棟は towerBase から上の同じ範囲に収まる
+      const yTo = towerBase * gap + c
       const px = THREE.MathUtils.lerp(offsets[1], offsets[0], s)
-      const py = THREE.MathUtils.lerp(H / 2, yTo, s) + Math.sin(Math.PI * s) * H * 0.5
-      const th = Math.PI * s
-      const v = e * gap - H / 2
+      // 塔の上でその場で反転するときは、角が下の棟にめり込まないよう、回るあいだだけ持ち上げる
+      const W = buildings[1].width
+      const flipLift = Math.sin(Math.PI * flipS) * (Math.hypot(W / 2, H / 2) - H / 2 + 0.5) * s
+      const py = THREE.MathUtils.lerp(c, yTo, s) + Math.sin(Math.PI * s) * H * 0.5 + flipLift
+      // 本来の塔へ向かうときは倒しながら逆さにする(flipS = 1)/ 間違った塔は正立のまま(flipS = 0)
+      const th = Math.PI * s * flipS
+      const v = e * gap - c
       g.position.set(px - v * Math.sin(th), py + v * Math.cos(th), 0)
       g.rotation.z = th
     }
-    // 階と階の間隔。離して表示 = FLOOR_GAP、積み重ね = 壁の高さ(上の階が下の階の壁の上に乗る)。塔はいつも積み重ねる
-    const gapGoal = () => (state.current.exploded && !state.current.tower ? FLOOR_GAP : WALL_HEIGHT)
+    // 階と階の間隔。離して表示 = FLOOR_GAP、積み重ね = 壁 + 床板(上の階の床板が下の階の壁の上に乗る)。塔はいつも積み重ねる
+    const gapGoal = () => (state.current.exploded && !state.current.tower ? FLOOR_GAP : STORY_HEIGHT)
     let gap = gapGoal()
 
     // 棟の外周(平面上の4隅)
@@ -558,6 +577,10 @@ export function MapView({
         lastTower = towerGoal
         zoomUntil = t + TOWER_SECONDS
       }
+      // 隣に並べているあいだは載せ方をすぐ切り替える。塔の上ではその場で反転させる
+      const flipGoal = (state.current.towerFlip ?? true) ? 1 : 0
+      flipT = towerT === 0 ? flipGoal : THREE.MathUtils.clamp(flipT + (flipGoal ? 1 : -1) * (dt / TOWER_SECONDS), 0, 1)
+      flipS = ease(flipT)
       towerT = THREE.MathUtils.clamp(towerT + (towerGoal ? 1 : -1) * (dt / TOWER_SECONDS), 0, 1)
       towerS = ease(towerT)
       updateGoal()
@@ -638,7 +661,7 @@ export function MapView({
       // 四隅の柱は、複数の階を離して表示しているときだけ見せる
       pillars.position.y = lo * gap
       pillars.scale.y = (hi - lo) * gap + WALL_HEIGHT
-      const spread = (gap - WALL_HEIGHT) / (FLOOR_GAP - WALL_HEIGHT)
+      const spread = (gap - STORY_HEIGHT) / (FLOOR_GAP - STORY_HEIGHT)
       pillarMats.forEach((m, w) => (m.opacity = 0.35 * spread * (lo === hi ? 0 : 1) * (1 - e) * wingNow.vis[w] * (1 - towerS)))
 
       for (const r of allyRunners) r.tick(dt, t)
