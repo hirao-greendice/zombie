@@ -101,6 +101,7 @@ export function MapScreen({ view, onViewChange, target, onTargetChange, active, 
     clearTimeout(towerTimer.current)
     if (tower && towerKind === kind) return setTower(false)
     setTowerKind(kind)
+    setFlipEast(false)
     // 別の塔になっているときは、隣へ戻さず、上に載っている東棟がその場で反転する
     if (tower) return
     // 塔は両方の棟・全部の階を立体で見る
@@ -108,6 +109,15 @@ export function MapScreen({ view, onViewChange, target, onTargetChange, active, 
     changeView('both')
     setShownFloors(building.floors.map(() => true))
     setTower(true)
+  }
+  /** 東棟をひとかたまりのまま、その場で裏返して見る(階の並びも逆になる。立体のときだけ。平面にすると元に戻して表示する) */
+  const [flipEast, setFlipEast] = useState(false)
+  const toggleFlipEast = () => {
+    if (tower) return
+    setMode('3d')
+    // 西棟だけを見ているときは、東棟が見えるようにする
+    if (view === 'west') changeView('east')
+    setFlipEast(!flipEast)
   }
   /** 平面へ: 塔なら、先に東棟を隣へ戻してから平面にする */
   const toPlan = () => {
@@ -191,6 +201,7 @@ export function MapScreen({ view, onViewChange, target, onTargetChange, active, 
               exploded={exploded}
               tower={tower}
               towerFlip={towerKind === 'true'}
+              flipEastFloors={flipEast && mode === '3d'}
               stairType={stairType}
               flat={mode === '2d'}
               flatFloor={flatFloor}
@@ -242,6 +253,13 @@ export function MapScreen({ view, onViewChange, target, onTargetChange, active, 
         </button>
         <button className={`side-btn tower-btn ${tower && towerKind === 'wrong' ? 'is-active' : ''}`} onClick={() => toggleTower('wrong')}>
           {tower && towerKind === 'wrong' ? '塔から戻す' : '間違った塔'}
+        </button>
+        {/* 東棟の各階をその場で裏返す。塔のあいだは使えない */}
+        <button
+          className={`side-btn side-btn--wide ${flipEast && mode === '3d' ? 'is-active' : ''} ${tower ? 'is-off' : ''}`}
+          onClick={toggleFlipEast}
+        >
+          {flipEast && mode === '3d' ? '東の裏返しを戻す' : '東を裏返す'}
         </button>
 
         {/* 塔のあいだは、棟と階の切り替えはしない */}

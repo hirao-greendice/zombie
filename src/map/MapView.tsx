@@ -58,6 +58,11 @@ interface Props {
    * 塔の途中で変えても、並べた状態に戻るまでは前の載せ方のまま動く
    */
   towerFlip?: boolean
+  /**
+   * true: 東棟(2つ目の棟)をひとかたまりのまま、その場で南北の軸で 180° 裏返して見せる(階の並びも上下逆になる)。
+   * 塔のあいだは使わない
+   */
+  flipEastFloors?: boolean
 }
 
 /** 立体 ⇄ 平面の変形にかける時間(秒) */
@@ -66,6 +71,8 @@ export const FLAT_SECONDS = 0.9
 export const WING_SECONDS = 0.8
 /** 本来の塔にする / 戻すのにかける時間(秒) */
 export const TOWER_SECONDS = 3
+/** 東棟の各階を裏返す / 戻すのにかける時間(秒) */
+export const FLIP_FLOORS_SECONDS = 1.2
 
 /** 表示している階より上の、消している階を持ち上げる量 */
 const LIFT = 5
@@ -98,11 +105,12 @@ export function MapView({
   flatFrame,
   tower = false,
   towerFlip = true,
+  flipEastFloors = false,
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null)
   // 描画ループから最新の props を読むための参照
-  const state = useRef({ shownWings, shownFloors, autoRotate, resetKey, exploded, stairType, paused, allies, followAlly, onAllyFloorChange, showTrail, flat, flatFloor, flatFrame, tower, towerFlip })
-  state.current = { shownWings, shownFloors, autoRotate, resetKey, exploded, stairType, paused, allies, followAlly, onAllyFloorChange, showTrail, flat, flatFloor, flatFrame, tower, towerFlip }
+  const state = useRef({ shownWings, shownFloors, autoRotate, resetKey, exploded, stairType, paused, allies, followAlly, onAllyFloorChange, showTrail, flat, flatFloor, flatFrame, tower, towerFlip, flipEastFloors })
+  state.current = { shownWings, shownFloors, autoRotate, resetKey, exploded, stairType, paused, allies, followAlly, onAllyFloorChange, showTrail, flat, flatFloor, flatFrame, tower, towerFlip, flipEastFloors }
 
   useEffect(() => {
     const host = hostRef.current!
@@ -146,6 +154,14 @@ export function MapView({
      */
     let flipT = towerFlip ? 1 : 0
     let flipS = flipT
+    /** 東棟の各階を、その場で裏返す量(0 = そのまま / 1 = 裏返し)。eachS はそれをなめらかにしたもの */
+    let eachT = flipEastFloors && !(canTower && tower) ? 1 : 0
+    let eachS = eachT
+    /**
+     * 東棟を裏返すときの軸の高さ(1F の床板の下面〜最上階の壁の上端の真ん中)。
+     * 消している階を持ち上げた分(LIFT)は含めない(含めると、選んだ階によって軸がずれる)
+     */
+    const eachAxisY = () => (canTower ? ((buildings[1].floors.length - 1) * gap + WALL_HEIGHT - SLAB_THICKNESS) / 2 : 0)
     /** 塔で、東棟の一番上の階(逆さにすると一番下)が来る階。西棟の上に何もない階を1つ空ける */
     const towerBase = buildings[0].floors.length + 1
     /** 塔の一番上の階 */
@@ -397,7 +413,8 @@ export function MapView({
         tick(dt: number, t: number) {
           const a = view()
           // 塔にしているあいだは、東棟の仲間は消す(棟ごと回っているので位置が合わない)
-          const wv = wingNow.vis[w] * (w === 1 ? 1 - towerS : 1)
+          // 階ごとに裏返しているあいだも同じ
+          const wv = wingNow.vis[w] * (w === 1 ? (1 - towerS) * (1 - eachS) : 1)
           allyObj.group.visible = !!a && wv > 0.01
           trailMat.opacity = wv
           if (!a) {
@@ -500,7 +517,10 @@ export function MapView({
       // 塔では、塔全体(1F〜一番上)を見る
       const lo = THREE.MathUtils.lerp(shownLo, 0, towerS)
       const hi = THREE.MathUtils.lerp(shownHi, towerTop, towerS)
-      goalTarget.set(THREE.MathUtils.lerp(wingNow.center, offsets[0], towerS), ((lo + hi) / 2) * gap, 0)
+      // 東棟を裏返しているときは、選んだ階が移った先(軸で折り返した高さ)を見る。西棟も見ているときは西棟に合わせたまま
+      const y0 = ((lo + hi) / 2) * gap
+      const mirror = eachS * (1 - (wingNow.vis[0] ?? 0))
+      goalTarget.set(THREE.MathUtils.lerp(wingNow.center, offsets[0], towerS), THREE.MathUtils.lerp(y0, 2 * eachAxisY() - y0, mirror), 0)
       goalDistance = (lo === hi ? 24 : 24 + (hi - lo) * (state.current.exploded && !state.current.tower ? 8 : 4)) * widthScale()
     }
     updateGoal()
@@ -581,6 +601,10 @@ export function MapView({
       const flipGoal = (state.current.towerFlip ?? true) ? 1 : 0
       flipT = towerT === 0 ? flipGoal : THREE.MathUtils.clamp(flipT + (flipGoal ? 1 : -1) * (dt / TOWER_SECONDS), 0, 1)
       flipS = ease(flipT)
+      // 東棟を階ごとに裏返す(塔のあいだはしない)
+      const eachGoal = state.current.flipEastFloors && !towerGoal ? 1 : 0
+      eachT = towerGoal ? 0 : THREE.MathUtils.clamp(eachT + (eachGoal ? 1 : -1) * (dt / FLIP_FLOORS_SECONDS), 0, 1)
+      eachS = ease(eachT)
       towerT = THREE.MathUtils.clamp(towerT + (towerGoal ? 1 : -1) * (dt / TOWER_SECONDS), 0, 1)
       towerS = ease(towerT)
       updateGoal()
@@ -643,7 +667,15 @@ export function MapView({
           // 平面にするときは、壁を床へ沈める
           f.group.scale.y = 1 - 0.97 * e
           if (w === 1 && towerS > 0) placeInTower(f.group, i, towerS)
-          else {
+          else if (w === 1 && eachS > 0) {
+            // 東棟をひとかたまりのまま、その場で南北の軸で裏返す。上下も入れ替わるので階の並びも逆になる
+            // (軸 = 1F の床板の下面〜最上階の壁の上端の真ん中。かたまりが占める高さの範囲は変わらない)
+            const th = Math.PI * eachS
+            const cy = eachAxisY()
+            const v = floorY[i] - cy
+            f.group.position.set(offsets[w] - v * Math.sin(th), cy + v * Math.cos(th), 0)
+            f.group.rotation.z = th
+          } else {
             f.group.position.set(offsets[w], floorY[i], 0)
             f.group.rotation.z = 0
           }
